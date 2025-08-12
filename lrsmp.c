@@ -54,6 +54,7 @@ lrs_mp_init (long dec_digits, FILE * fpin, FILE * fpout)
     dec_digits = DEFAULT_DIGITS;
 
   lrs_digits = DEC2DIG (dec_digits);	/* max permitted no. of digits   */
+  printf("\ndec_digits=%ld  lrs_digits=%ld\n",dec_digits,lrs_digits);
 
   if (lrs_digits > MAX_DIGITS)
     {
@@ -780,7 +781,7 @@ readrat (lrs_mp Na, lrs_mp Da)
 
 
 void 
-addint (lrs_mp a, lrs_mp b, lrs_mp c)	/* compute c=a+b */
+addint (lrs_mp a, lrs_mp b, lrs_mp c)	/* compute c=a+b; b,c different vars */
 {
   copy (c, a);
   linint (c, 1, b, 1);
@@ -1081,9 +1082,9 @@ void
 lrs_default_digits_overflow ()
 {
   fprintf (stdout, "\nlrsmp: overflow at digits=%ld", DIG2DEC (lrs_digits));
-  fprintf (stdout, "\nInitialize lrs_mp_init with  n > %ldL\n", DIG2DEC (lrs_digits));
+  fprintf (stdout, "\nInitialize lrs_mp_init with  dec_digits > %ldL\n", DIG2DEC (lrs_digits));
 
-  lrs_exit (1);
+  lrs_overflow (1);
 }
 
 #ifdef PLRS

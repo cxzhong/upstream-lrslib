@@ -1,4 +1,4 @@
-#makefile for lrslib-071    2020.5.23 
+#makefile for lrslib-072    2020.5.4 
 
 # C compiler requires __int128 support for 128bit arithmetic (eg. gcc v. 4.6.0 or later for 128bit integer support) 
 # otherwise use %make lrs64 to compile
@@ -6,13 +6,12 @@
 # add -DSIGNALS if your compiler does *not* support <signal.h> <unistd.h>
 
 #try uncommenting next line if cc is the default C compiler
-#CC = gcc
+CC = gcc      # or gcc7
 
-default: lrs lrsgmp
+default: lrs lrsgmp lrsnash checkpred inedel 
 
 #choose line below instead if __int128 not supported
 #default: lrs64 lrsgmp 
-
 
 #make lrs               lrs,lrsgmp       hybrid and gmp versions 
 #make lrs64             lrs,lrsgmp    compilers without 128 bit support
@@ -24,8 +23,7 @@ default: lrs lrsgmp
 #make singlemplrs        makes mplrs with various arithmetic packages (depending on compiler)
 #make allmp             uses native mp and long arithmetic
 #make demo              various demo programs for lrslib     
-#make lrsnash           Nash equilibria for 2-person games: lrsnash (gmp), lrsnash1 (64bit), lrsnash2 (128bit)
-#make fel	        Fourier elimination (buggy, needs fixing)
+#make alllrsnash        Nash equilibria for 2-person games: lrsnash (gmp), lrsnash1 (64bit), lrsnash2 (128bit), 2nash, setupnash
 #make clean             removes binaries                                      
 
 #INCLUDEDIR = /usr/include
@@ -35,7 +33,7 @@ default: lrs lrsgmp
 INCLUDEDIR = /usr/local/include
 LIBDIR     = /usr/local/lib
 
-CFLAGS     ?= -O3 -Wall
+CFLAGS     ?= -O3 -Wall 
 #CFLAGS     = -g -Wall 
 
 #use this if you want only output file contain data between begin/end lines
@@ -47,7 +45,7 @@ mpicxx=mpicc
 
 # for 32 bit machines
 
-# BITS=-DB32
+# BITS=
 # MPLRSOBJ2=
 
 # for 64 bit machines
@@ -67,8 +65,8 @@ lrs: ${LRSOBJ}
 	$(CC) -O3 hvref.c -o hvref
 	ln -s -f lrs redund
 
-lrsmp: ${LRSOBJMP}
-	$(CC) ${CFLAGS} -DMA ${BITS} -o lrsmp ${LRSOBJMP}
+lrsMP: ${LRSOBJMP}
+	$(CC) ${CFLAGS} -DMA ${BITS} -o lrsMP ${LRSOBJMP} 
 	$(CC) -O3 hvref.c -o hvref
 	ln -s -f lrs redund
 
@@ -105,8 +103,11 @@ lrsgmp.o: lrsgmp.c lrsgmp.h
 lrsmp.o: lrsmp.c lrsmp.h
 	$(CC) ${CFLAGS} -DMA -DMP -c -o lrsmp.o lrsmp.c
 
+inedel: inedel.c lrsgmp.h lrsgmp.c
+	$(CC) ${CFLAGS} -I${INCLUDEDIR} -L${LIBDIR} -DGMP -o inedel inedel.c lrsgmp.c -lgmp
+
 checkpred: checkpred.c lrsgmp.h lrsgmp.c
-	$(CC) $(CFLAGS) -DGMP -lgmp -o checkpred checkpred.c lrsgmp.c
+	$(CC) $(CFLAGS) -I${INCLUDEDIR} -L${LIBDIR} -DGMP -o checkpred checkpred.c lrsgmp.c -lgmp
 
 lrslong1-mplrs.o: lrslong.c lrslong.h
 	$(mpicxx) ${CFLAGS} -DTIMES -DSIGNALS -DMA -DSAFE -DLRSLONG -DPLRS -c -o lrslong1-mplrs.o lrslong.c
@@ -145,7 +146,7 @@ mplrsgmp: mplrs.c mplrs.h lrslib.c lrslib.h lrsgmp.c lrsgmp.h lrsdriver.h lrsdri
 	$(mpicxx) ${CFLAGS} -DTIMES -DSIGNALS -D_WITH_GETLINE -DPLRS -DGMP -I${INCLUDEDIR} mplrs.c lrslib.c lrsgmp.c lrsdriver.c -L${LIBDIR} -o mplrsgmp -lgmp
 
 mplrs1: mplrs.c mplrs.h lrslib.c lrslib.h lrslong.c lrslong.h lrsdriver.h lrsdriver.c
-	$(mpicxx) ${CFLAGS} -DTIMES -DSIGNALS -D_WITH_GETLINE -DPLRS -DLRSLONG mplrs.c lrslib.c lrslong.c lrsdriver.c -o mplrs1
+	$(mpicxx) ${CFLAGS} -DTIMES -DSIGNALS -D_WITH_GETLINE -DPLRS -DSAFE -DLRSLONG mplrs.c lrslib.c lrslong.c lrsdriver.c -o mplrs1
 
 mplrs2: mplrs.c mplrs.h lrslib.c lrslib.h lrslong.c lrslong.h lrsdriver.h lrsdriver.c
 	$(mpicxx) ${CFLAGS} -DTIMES -DSIGNALS -D_WITH_GETLINE -DPLRS -DSAFE -DLRSLONG ${BITS} mplrs.c lrslib.c lrslong.c lrsdriver.c -o mplrs2
@@ -172,16 +173,18 @@ lrsgmp:		lrs.c lrslib.c lrslib.h lrsgmp.c lrsgmp.h lrsdriver.h lrsdriver.c
 single:		lrs.c lrslong.c lrslong.h lrslib.c lrslib.h lrsgmp.c lrsgmp.h lrsdriver.h lrsdriver.c
 		$(CC)  ${CFLAGS}  -DSAFE  -DLRSLONG -o lrs1 lrs.c lrslib.c lrslong.c lrsdriver.c
 		$(CC)  ${CFLAGS} ${BITS} -DSAFE  -DLRSLONG -o lrs2 lrs.c lrslib.c lrslong.c lrsdriver.c
+		$(CC)  ${CFLAGS} -DMP -o lrsmp lrs.c lrslib.c lrsdriver.c lrsmp.c
+
 		ln -s -f lrs1 redund1
 		ln -s -f lrs2 redund2
 
 allmp:		lrs.c lrslib.c lrslib.h lrsmp.c lrsmp.h lrsdriver.h lrsdriver.c
-		$(CC) -Wall -O3  -o lrs lrs.c lrslib.c lrsdriver.c lrsmp.c
+		$(CC) -Wall -O3 -DMP  -o lrsmp lrs.c lrslib.c lrsdriver.c lrsmp.c
 		$(CC) -Wall -O3  -DSAFE -DLRSLONG -o lrs1 lrs.c lrslib.c lrsdriver.c lrslong.c
 		$(CC) -Wall -O3  -DSAFE -DLRSLONG ${BITS} -o lrs2 lrs.c lrslib.c lrsdriver.c lrslong.c
-		$(CC) -O3 -DLRS_QUIET   -o lrsnash lrsnash.c lrsnashlib.c lrslib.c lrsdriver.c lrsmp.c -static
-		$(CC) -O3  -o setnash setupnash.c lrslib.c lrsdriver.c lrsmp.c
-		$(CC) -O3  -o setnash2 setupnash2.c lrslib.c lrsdriver.c lrsmp.c
+		$(CC) -O3 -DMP -DLRS_QUIET   -o lrsnash lrsnash.c lrsnashlib.c lrslib.c lrsdriver.c lrsmp.c -static
+		$(CC) -O3 -DMP -o setupnash setupnash.c lrslib.c lrsdriver.c lrsmp.c
+		$(CC) -O3 -DMP -o setupnash2 setupnash2.c lrslib.c lrsdriver.c lrsmp.c
 		$(CC) -O3  -o 2nash 2nash.c
 
 demo:	lpdemo1.c lrslib.c lrsdriver.c lrslib.h lrsgmp.c lrsgmp.h
@@ -191,18 +194,18 @@ demo:	lpdemo1.c lrslib.c lrsdriver.c lrslib.h lrsgmp.c lrsgmp.h
 	$(CC) -O3   -I${INCLUDEDIR} -L${LIBDIR} -o vedemo  vedemo.c lrslib.c lrsdriver.c lrsgmp.c -lgmp -DGMP
 	$(CC) -O3   -I${INCLUDEDIR} -L${LIBDIR} -o chdemo  chdemo.c lrslib.c lrsdriver.c lrsgmp.c -lgmp -DGMP
 
-lrsnash:	lrsnash.c nashdemo.c lrsnashlib.c lrslib.c lrsnashlib.h lrslib.h lrsgmp.c lrsgmp.h lrslong.h lrsdriver.h lrsdriver.c
+lrsnash:	lrsnash.c lrsnashlib.c lrslib.c lrsnashlib.h lrslib.h lrsgmp.c lrsgmp.h lrsdriver.h lrsdriver.c
+		$(CC) -O3   -I${INCLUDEDIR} -L${LIBDIR} -o lrsnash lrsnash.c lrsnashlib.c lrslib.c lrsgmp.c lrsdriver.c  -lgmp -DGMP
+
+alllrsnash:	lrsnash.c nashdemo.c lrsnashlib.c lrslib.c lrsnashlib.h lrslib.h lrsgmp.c lrsgmp.h lrslong.h lrsdriver.h lrsdriver.c
 		$(CC) -O3   -I${INCLUDEDIR} -L${LIBDIR} -o lrsnashgmp lrsnash.c lrsnashlib.c lrslib.c lrsgmp.c lrsdriver.c  -lgmp -DGMP
 		$(CC) -O3   -I${INCLUDEDIR} -L${LIBDIR} -o lrsnash1 lrsnash.c lrsnashlib.c lrslib.c lrslong.c lrsdriver.c -DLRSLONG -DSAFE
 		$(CC) -O3   -I${INCLUDEDIR} -L${LIBDIR} -o lrsnash2 lrsnash.c lrsnashlib.c lrslib.c lrslong.c lrsdriver.c -DLRSLONG -DSAFE ${BITS}
 		$(CC) -O3   -I${INCLUDEDIR} -L${LIBDIR} -o nashdemo nashdemo.c lrsnashlib.c lrslib.c lrsgmp.c lrsdriver.c -lgmp -DGMP
+		$(CC) -O3 -DMP -o setupnash setupnash.c lrslib.c lrsdriver.c lrsmp.c
+		$(CC) -O3 -DMP -o setupnash2 setupnash2.c lrslib.c lrsdriver.c lrsmp.c
 		$(CC) -O3  -I${INCLUDEDIR} -L${LIBDIR} -o 2nash 2nash.c
 		cp lrsnashgmp lrsnash
-
-fel:	fel.c lrslib.h lrslib.c lrsgmp.h lrsgmp.c lrslong.c
-	$(CC) -O3 -Wall  -DGMP -I${INCLUDEDIR} fel.c lrslib.c lrsdriver.c lrsgmp.c -L${LIBDIR}  -lgmp -o felgmp
-	$(CC) -O3 -Wall  -I${INCLUDEDIR} fel.c lrslib.c lrsdriver.c lrslong.c -L${LIBDIR}  -DLRSLONG -DSAFE -o fel1
-	$(CC) -O3 -Wall  -I${INCLUDEDIR} fel.c lrslib.c lrsdriver.c lrslong.c -L${LIBDIR}  -DLRSLONG -DSAFE ${BITS} -o fel2
 
 ######################################################################
 # From here on the author is David Bremner <bremner@unb.ca> to whom you should turn for help             
@@ -296,6 +299,6 @@ install-common:
 ######################################################################
 clean:		
 	rm -f  lrs lrs1 lrsgmp lrs1n lpdemo lpdemo1 lpdemo2 mplrs1 mplrs mplrsmp  mplrsgmp lrs2 mplrs2 lrsflint mplrsflint *.o *.exe *.so
-	rm -f  hvref setnash setnash2 fel1 fel1 felgmp lrsnashgmp lrsnash lrsnash1 lrsnash2 nashdemo 2nash vedemo
+	rm -f  lrsmp lrsMP hvref setupnash setupnash2 lrsnashgmp lrsnash lrsnash1 lrsnash2 nashdemo 2nash vedemo checkpred inedel
 	rm -f ${LRSOBJ} ${LRSOBJ64} ${SHLIBOBJ} ${SHLIB} ${SONAME} ${SHLINK}
 	rm -f ${SHLIBBIN}

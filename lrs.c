@@ -62,6 +62,7 @@ main (int argc, char *argv[])
 /* create new argv for the remaining calls                                */
 
   newargv = makenewargv(&argc,argv,tmp);
+  free(R->redineq);                    /* reallocated in stage 0 */
 
   if(b128)
     {
@@ -77,6 +78,7 @@ main (int argc, char *argv[])
 
 /* if you change tmp file name update newargv[1] */
 
+  free(R->redineq);                    /* reallocated in stage 0 */
   fprintf(stderr,"\n*lrs:overflow possible: restarting with GMP arithmetic\n");
 
   lrsgmp_main(argc,newargv,&P,&Q,overfl,0,tmp,R);                                      
@@ -92,10 +94,10 @@ byebye:
   free(R->redineq);
   free(R->facet);
   free(R);
-  fprintf(stderr,"\n");
   if(lrs_stdin==1)    /* get rid of temporary file for stdin */
     remove(tmp);
   free(tmp);
+  fprintf(stderr,"\n");
   return 0;
 
 } /* lrs.c */

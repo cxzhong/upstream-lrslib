@@ -1,7 +1,6 @@
-*mp5.ine
+mp5
 *metric polytope on 5 points
 H-representation
-linearity 3 1 2 3
 begin
 40 11 integer
 2 -1 -1 0 0 -1 0 0 0 0 0 
@@ -45,8 +44,7 @@ begin
 2 0 -1 0 -1 0 0 0 0 -1 0 
 2 0 0 -1 -1 0 0 0 0 0 -1 
 end
-*minimize 0 1 2 3 4 5 6 7 8 9 10
-*extract   5 1 2 3 4 5
-*lponly
-*estimates 10
-*countonly
+*project 6 1 2 3 5 6 8
+*eliminate 4  4 7 9 10
+*verbose
+printcobasis

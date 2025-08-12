@@ -5,19 +5,28 @@
 /* Derived from prs_single.c ( rational arithmetic for lrs and prs)  */
 /* authored by  Ambros Marzetta    Revision 1.2  1998/05/27          */
 
-#ifdef PLRS
-#endif
-
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <limits.h>
 #include "lrslong.h"
 
 long lrs_digits;		/* max permitted no. of digits   */
 long lrs_record_digits;		/* this is the biggest acheived so far.     */
 
+#if defined(B128) && !defined(CONS)
+__int128 MAXDm,MAXDl,MAXDa;
+#endif
 
 #define MAXINPUT 1000		/*max length of any input rational */
+
+/* lrs_overflow routine should user supplied if not using lrslib.c */
+
+/*
+void lrs_overflow(int parm)
+{
+}
+*/
 
 void 
 gcd (lrs_mp u, lrs_mp v)
@@ -212,34 +221,38 @@ mptoi (lrs_mp a)        /* convert lrs_mp to long */
 char *mpgetstr10(char *out, lrs_mp a)
 {
   char *buf=NULL;
-  int len=0;
 #ifndef B128
+  int len=0;
   len = snprintf(buf, 0, "%lld", *a);
   if (out != NULL)
     buf = out;
   else
-    buf = (char*)malloc(sizeof(char)*(len+1));
+    buf = malloc(sizeof(char)*(len+1));
   sprintf(buf, "%lld", *a);
   return buf;
 #else
-  /* could just allocate 41 chars or so instead of counting */
-  long long lower = *a % P10_INT64;
-  long long upper = *a / P10_INT64;
-  if (upper != 0)
-    len=snprintf(buf, 0, "%lld", upper);
-  else if (lower < 0)
-    len++; /* - */
-  len+=snprintf(buf, 0, "%lld", abs128(lower));
+  __int128 tmp=abs128(*a);
+  int i,j=0;
+  int t[41];
   if (out != NULL)
     buf = out;
   else
-    buf = (char*)malloc(sizeof(char)*(len+1));
-  len = 0;
-  if (upper != 0)
-    len=sprintf(buf, "%lld", upper);
-  else if (lower < 0)
-    len+=sprintf(buf+len, "-"); /* - */
-  len+=sprintf(buf+len, "%lld", abs128(lower));
+    buf = calloc(43, sizeof(char));
+  if (*a>=LLONG_MIN && *a<=LLONG_MAX)
+  {
+    sprintf(buf, "%lld", (long long)*a);
+    return buf;
+  }
+  for (i=0; tmp>0; i++)
+  {
+    t[i] = tmp%10;
+    tmp = tmp / 10;
+  }
+  i--;
+  if (*a<0)
+    buf[j++]='-';
+  while (i>=0)
+    buf[j++] = '0'+t[i--];
   return buf;
 #endif
 }
@@ -375,17 +388,30 @@ pmp (const char *name, lrs_mp Nt)
 #ifndef B128
   fprintf (lrs_ofp, "%lld", *Nt);
 #else
+  char buf[41]={0};
+  __int128 tmp=abs128(*Nt);
+  int c;
+  int i;
+  if (*Nt>=LLONG_MIN && *Nt<=LLONG_MAX)
   {
-    long long lower = *Nt % P10_INT64;
-    long long upper = *Nt / P10_INT64;
-    if (upper != 0)
-      fprintf(lrs_ofp, "%lld", upper);
-    else if (lower < 0)
-      fprintf(lrs_ofp, "-");
-    fprintf(lrs_ofp, "%lld", abs128(lower));
+    fprintf (lrs_ofp, "%lld ", (long long)*Nt);
+    return;
+  }
+  if (*Nt<0)
+    putc('-', lrs_ofp);
+  for (i=0; tmp>0; i++)
+  {
+    buf[i] = tmp%10;
+    tmp = tmp / 10;
+  }
+  i--;
+  while (i>=0)
+  {
+    c='0'+buf[i--];
+    putc(c, lrs_ofp);
   }
 #endif
-  fprintf (lrs_ofp, " ");
+  putc(' ', lrs_ofp);
 }
 
 void 
@@ -404,24 +430,15 @@ prat (const char *name, lrs_mp Nin, lrs_mp Din)
     fprintf (lrs_ofp, "/%lld", *Dt);
 #else
   {
-    long long lower = *Nt % P10_INT64;
-    long long upper = *Nt / P10_INT64;
-    fprintf(lrs_ofp, "%s", name);
-    if (upper != 0)
-      fprintf(lrs_ofp, "%lld", upper);
-    else if (lower < 0)
-      fprintf(lrs_ofp, "-");
-    fprintf(lrs_ofp, "%lld", abs128(lower));
+    char *Nc, *Dc;
+    Nc = mpgetstr10(NULL, Nt);
+    fprintf(lrs_ofp, "%s%s", name, Nc);
+    free(Nc);
     if (*Dt != 1)
     {
-      lower = *Dt % P10_INT64;
-      upper = *Dt / P10_INT64;
-      fprintf(lrs_ofp, "/");
-      if (upper != 0)
-        fprintf(lrs_ofp, "%lld", upper);
-      if (lower < 0)
-        fprintf(lrs_ofp, "-");
-      fprintf(lrs_ofp, "%lld", abs128(lower));
+      Dc = mpgetstr10(NULL, Dt);
+      fprintf(lrs_ofp, "/%s", Dc);
+      free(Dc);
     }
   }
 #endif
@@ -466,6 +483,7 @@ lrs_clear_mp_vector (lrs_mp_vector p, long n)
   for (i = 0; i <= n; i++)
     free (p[i]);
   free (p);
+  p=NULL;
 }
 
 lrs_mp_matrix 
@@ -507,6 +525,7 @@ lrs_clear_mp_matrix (lrs_mp_matrix p, long m, long n)
       free (p[i]);
 /* 2015.9.9 memory leak fix */
  free(p);
+ p=NULL;
 }
 
 void 
@@ -544,6 +563,16 @@ lrs_mp_init (long dec_digits, FILE * fpin, FILE * fpout)
   lrs_ifp = fpin;
   lrs_ofp = fpout;
 #endif
+
+#ifdef B128
+#ifndef CONS
+  MAXDl=9223372036854775807L;  /* 2^63 - 1 */
+  MAXDa=MAXDl*MAXDl;           /* should be 2^126 - 1 */
+  MAXDm=3611622602L;    /* sqrt(sqrt( 2^127 -1 ))         */
+  MAXDm=MAXDm*MAXDm+6000000000;    /* too big to initialize directly */
+#endif
+#endif
+
   lrs_record_digits = 0;
   lrs_digits =  0;		/* max permitted no. of digits   */
   return TRUE;
@@ -627,3 +656,6 @@ stringcpy (char *s, char *t)	/*copy t to s pointer version */
 {
   while (((*s++) = (*t++)) != '\0');
 }
+
+
+

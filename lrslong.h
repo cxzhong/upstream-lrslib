@@ -1,6 +1,7 @@
 /* lrslong.h      (lrs long integer arithmetic library              */
 /* Copyright: David Avis 2000, avis@cs.mcgill.ca                    */
 /* Version 4.0, February 17, 2000                                   */
+/* Version 4.1, November 15, 2020 for bigger  mulint range          */
 
 /* This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -28,13 +29,6 @@
  */
 
 
-/*
-#ifdef PLRS
-#include <string>
-using namespace std;
-#endif
-*/
-
 /***********/
 /* defines */
 /***********/
@@ -58,7 +52,8 @@ using namespace std;
 
 /**********MACHINE DEPENDENT CONSTANTS***********/
 /* MAXD is 2^(k-1)-1 where k is word size       */
-/* MAXDm is 2^(k/2-1)-1 where k is word size    */
+/* MAXDm is sqrt(2^(k-1)-1) where k is word size*/
+/* MAXDl is 2^(k/2-1)-1 where k is word size    */
 /* MAXDa is 2^(k-2)-1 where k is word size      */
 /* MAXD must be at least 2*BASE^2               */
 /* If BASE is 10^k, use "%k.ku" for FORMAT      */
@@ -67,12 +62,18 @@ using namespace std;
 /************************************************/
 #ifdef B128
 /* 128 bit machines */                   /* compiler does not accept big constants! */
-#define MAXD 9223372036854775807L        /* should be 2^127 -1 but is  2^63 - 1 */
+#ifdef CONS
 #define MAXDm 9223372036854775807L       /* 2^63 - 1 */
+#define MAXDl 9223372036854775807L        /* should be 2^126 -1 but is  2^63 - 1 */
 #define MAXDa 9223372036854775807L        /* should be 2^126 -1 but is  2^63 - 1 */
+#else
+extern __int128 MAXDm,MAXDl,MAXDa;               /* set correctly in lrs_mp_init in lrslong.c */
+#endif
+
 /* max power of 10 fitting in signed int64 */
 #define P10_INT64  1000000000000000000ULL
 
+#define MAXD 9223372036854775807L        /* should be 2^127 -1 but is  2^63 - 1     */
 #define BASE 1000000000L
 #define FORMAT "%9.9u"
 #define BASE_DIG 9
@@ -81,8 +82,9 @@ using namespace std;
 #else
 /* 64 bit machines */
 #define MAXD 9223372036854775807LL        /* 2^63 - 1 */
-#define MAXDm 2147483647LL                /* 2^31 - 1 */
-#define MAXDa 4611686018427387904LL       /* 2^62 - 1 */
+#define MAXDl 2147483647LL                /* 2^31 - 1 */
+#define MAXDm 3037000499LL                /* sqrt(2^63 - 1) */
+#define MAXDa 4611686018427387903LL       /* 2^62 - 1 */
 #define BASE 1000000000L
 #define FORMAT "%9.9u"
 #define BASE_DIG 9
@@ -113,34 +115,40 @@ using namespace std;
 /* lazy but fast overflow checking */
 
 #define mpsafem(a,b)             *(a)>MAXDm||*(b)>MAXDm||*(a)<-MAXDm||*(b)<-MAXDm
+#define mpsafel(a,b)             *(a)>MAXDl||*(b)>MAXDl||*(a)<-MAXDl||*(b)<-MAXDl
 #define mpsafea(a,b)             *(a)>MAXDa||*(b)>MAXDa||*(a)<-MAXDa||*(b)<-MAXDa
 
 #ifdef DEBUG
-#define mperrorm(a,b)            fprintf(stdout,"  : max(|a|,|b|) > %ld\n",MAXDa);lrs_overflow(1)
+#define mperrorm(a,b)            fprintf(stdout,"  : max(|a|,|b|) > %ld\n",MAXDm);lrs_overflow(1)
+#define mperrorl(a,b)            fprintf(stdout,"  : max(|a|,|b|) > %ld\n",MAXDl);lrs_overflow(1)
 #define mperrora(a,b)            fprintf(stdout,"  : max(|a|,|b|) > %ld\n",MAXDa);lrs_overflow(1)
-#define linint(a, ka, b, kb)    if( mpsafem(a,b) ) {fprintf(stdout, "\n*linint ");mperrorm(a,b);}  else *(a) = *(a) * ka + *(b) * kb
-#define mulint(a, b, c)         if( mpsafem(a,b) ) {fprintf(stdout, "\n*mulint ");mperrorm(a,b);}  else *(c) = *(a) * *(b)
-#define addint(a, b, c)         if( mpsafea(a,b) ) {fprintf(stdout, "\n*addint ");mperrora(a,b);}  else *(c) = *(a) + *(b)
-#define subint(a, b, c)         if( mpsafea(a,b) ) {fprintf(stdout, "\n*subint ");mperrora(a,b);}  else *(c) = *(a) - *(b)
-#define decint(a, b)            if( mpsafea(a,b) ) {fprintf(stdout, "\n*decint ");mperrora(a,b);}  else *(a) = *(a) - *(b)
+#define linint(a, ka, b, kb)    {if( mpsafel(a,b) ) {fprintf(stdout, "\n*linint ");mperrorl(a,b);}  else *(a) = *(a) * ka + *(b) * kb;}
+#define mulint(a, b, c)         {if( mpsafem(a,b) ) {fprintf(stdout, "\n*mulint ");mperrorm(a,b);}  else *(c) = *(a) * *(b);}
+#define addint(a, b, c)         {if( mpsafea(a,b) ) {fprintf(stdout, "\n*addint ");mperrora(a,b);}  else *(c) = *(a) + *(b);}
+#define subint(a, b, c)         {if( mpsafea(a,b) ) {fprintf(stdout, "\n*subint ");mperrora(a,b);}  else *(c) = *(a) - *(b);}
+#define decint(a, b)            {if( mpsafea(a,b) ) {fprintf(stdout, "\n*decint ");mperrora(a,b);}  else *(a) = *(a) - *(b);}
+#define qpiv(a,b,c,d,e)         {if( mpsafel(a,b)|| mpsafel(c,d)){fprintf(stdout, "\n*qpiv ");mperrorl(a,b); mperrorl(c,d);} ; else *(a) =(*(a) * *(b) - *(c) * *(d))/ (*e);}
 #else
-#define linint(a, ka, b, kb)    if( mpsafem(a,b) ) lrs_overflow(1) ; else *(a) = *(a) * ka + *(b) * kb
-#define mulint(a, b, c)         if( mpsafem(a,b) ) lrs_overflow(1) ; else *(c) = *(a) * *(b)
-#define addint(a, b, c)         if( mpsafea(a,b) ) lrs_overflow(1) ; else *(c) = *(a) + *(b)
-#define subint(a, b, c)         if( mpsafea(a,b) ) lrs_overflow(1) ; else *(c) = *(a) - *(b)
-#define decint(a, b)            if( mpsafea(a,b) ) lrs_overflow(1) ; else *(a) = *(a) - *(b)
+#define qpiv(a,b,c,d,e)         {if( mpsafel(a,b)|| mpsafel(c,d)) lrs_overflow(1) ; else *(a) =(*(a) * *(b) - *(c) * *(d))/ (*e);}
+#define linint(a, ka, b, kb)    {if( mpsafel(a,b) ) lrs_overflow(1) ; else *(a) = *(a) * ka + *(b) * kb;}
+#define mulint(a, b, c)         {if( mpsafem(a,b) ) lrs_overflow(1) ; else *(c) = *(a) * *(b);}
+#define addint(a, b, c)         {if( mpsafea(a,b) ) lrs_overflow(1) ; else *(c) = *(a) + *(b);}
+#define subint(a, b, c)         {if( mpsafea(a,b) ) lrs_overflow(1) ; else *(c) = *(a) - *(b);}
+#define decint(a, b)            {if( mpsafea(a,b) ) lrs_overflow(1) ; else *(a) = *(a) - *(b);}
 #endif
 
 #else
 /* unprotected routines */
+#define qpiv(a,b,c,d,e)         *(a) =(*(a) * *(b) - *(c) * *(d))/ (*e)
 #define addint(a, b, c)         *(c) = *(a) + *(b)
 #define subint(a, b, c)         *(c) = *(a) - *(b)
 #define linint(a, ka, b, kb)    *(a) = *(a) * ka + *(b) * kb
 #define mulint(a, b, c)         *(c) = *(a) * *(b)
 #endif
 
-#define unchecked_decint(a, b)  *(a) = *(a) - *(b)  /* only safe if a,b come from mulint */
-#define divint(a, b, c)         *(c) = *(a) / *(b); *(a) = *(a) % *(b)
+// #define unchecked_decint(a, b)  *(a) = *(a) - *(b)  /* v.7.1 only safe if a,b come from mulint */
+#define unchecked_decint(a, b)  decint(a, b)           /* v 7.2 has larger range for mulint       */
+#define divint(a, b, c)         {*(c) = *(a) / *(b); *(a) = *(a) % *(b);}
 #define exactdivint(a,b,c) 	*(c) = *(a) / *(b);
 
 #define abs128(a)		(a>0? a : -1*a)
@@ -345,4 +353,5 @@ void *xcalloc (long n, long s, long l, const char *f);
 void lrs_default_digits_overflow ();
 void lrs_exit(int i);   
 void lrs_overflow(int i);   
+void lrsv2_overflow(int i);   
 /* end of  lrs_long.h (vertex enumeration using lexicographic reverse search) */

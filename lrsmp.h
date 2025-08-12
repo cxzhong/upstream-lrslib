@@ -42,7 +42,8 @@
 
 /*
    this is in decimal digits, you pay in memory if you increase this,
-   unless you override by a line with
+   unless you overide it in lrs_mp_init() or
+   (lrs only)unless you override by a line with
    digits n
    before the begin line of your file.
  */
@@ -215,5 +216,6 @@ void *xcalloc (long n, long s, long l, const char *f);
 void lrs_default_digits_overflow ();
 void digits_overflow ();
 void lrs_exit(int i); 
+void lrs_overflow(int i);
 
 /* end of  lrsmp.h (vertex enumeration using lexicographic reverse search) */

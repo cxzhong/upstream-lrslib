@@ -37,7 +37,7 @@ Initial lrs Author: David Avis avis@cs.mcgill.ca
 
 extern FILE *lrs_ofp; /* hack to get redund final print in output file */
 
-#define USAGE "Usage is: \n mpirun -np <number of processes> mplrs <infile> <outfile> \n or \n mpirun -np <number of processes> mplrs <infile> <outfile> -id <initial depth> -maxc <maxcobases> -maxd <depth> -lmin <int> -lmax <int> -scale <int> -maxbuf <int> -countonly -hist <file> -temp <prefix> -freq <file> -stop <stopfile> -checkp <checkpoint file> -restart <checkpoint file> -time <seconds> -stopafter <int> -redund"
+#define USAGE "Usage is: \n mpirun -np <number of processes> mplrs <infile> <outfile> \n or \n mpirun -np <number of processes> mplrs <infile> <outfile> -id <initial depth> -maxc <maxcobases> -maxd <depth> -lmin <int> -lmax <int> -scale <int> -rows <int> -lastp <int> -lastrows <int> -maxbuf <int> -countonly -queue -minheight -hist <file> -temp <prefix> -freq <file> -stop <stopfile> -checkp <checkpoint file> -restart <checkpoint file> -flipstart <checkpoint file> -time <seconds> -stopafter <int> -redund"
 
 /* Default values for options. */
 #define DEF_LMIN 3	/* default -lmin  */
@@ -45,6 +45,10 @@ extern FILE *lrs_ofp; /* hack to get redund final print in output file */
 #define DEF_ID   2	/* default -id    */
 #define DEF_MAXD 0	/* default -maxd  */
 #define DEF_MAXC 50	/* default -maxc  */
+#define DEF_ROWS 60	/* default -rows  */
+#define DEF_LASTP 10	/* default -lastp */
+#define DEF_LASTROWS 10 /* default -lastsplit */
+#define DEF_J   0	/* default -j (disabled) */
 #define DEF_MAXNCOB 0   /* default -stopafter (disabled) */
 #define DEF_MAXBUF  500 /* default -maxbuf */
 
@@ -87,6 +91,11 @@ typedef struct outlist {
 	struct outlist *next;
 } outlist;
 
+typedef struct cobs {
+	char *str;
+	long depth;
+} cobs;
+
 /* A linked-list of buffers for MPI communications.
  * req[0...count-1] correspond to buf[0...count-1]
  *
@@ -99,6 +108,7 @@ typedef struct msgbuf {
 	int count;
 	int target;
 	int data;  /* optional, use yourself if needed for something */
+	long *current_count; /* optional, only used on consumer */
 	int queue;  /* if 1, send items 1...count after 0 has completed */
 	/* queue pointers must be NULL or something free()able */
 	int *tags;  /* tags to use on items 1...count if queued */
@@ -107,6 +117,14 @@ typedef struct msgbuf {
 
 	struct msgbuf *next;
 } msgbuf;
+
+typedef struct jobv {
+	char *cob;
+	long *nums;
+	long depth;
+	unsigned int nnums;
+	int type;	/* 0: cobasis, 1: redund, 2: to use for fel? */
+} job;
 
 /* A structure containing the state of this process.
  * Each process has one.
@@ -123,6 +141,8 @@ typedef struct mplrsv {
 	int caughtsig; /* flag for catching a signal */
 	unsigned int abortinit; /* lrs_main stage 0 (setup) failed? */
 	unsigned int overflow; /* 0: lrslong 1:lrslong2 2:lrsgmp */
+	int renumber; /* using renumber? disables maxbuf etc */
+	int dummyout; /* for renumbering jobs with no output */
 	/* counts */
 	unsigned long long rays;
 	unsigned long long vertices;
@@ -131,7 +151,8 @@ typedef struct mplrsv {
 	unsigned long long linearities;
 	unsigned long long intvertices;
 	unsigned long long deepest;
-        unsigned long long nredundcol;
+	unsigned long long deepest_vertex;
+	unsigned long long nredundcol;
 	lrs_mp Tnum, Tden, tN, tD, Vnum, Vden;
 
 	struct timeval start, end;
@@ -156,18 +177,21 @@ typedef struct mplrsv {
 	FILE *tfile;
 	int initializing;		/* in phase 1? */
 	int countonly; /* countonly */
+	int minheight; /*sort L and returned cobases with shallow first? def:0*/
 	int outnum; /* number of output lines buffered */
 	int maxbuf; /* maximum number of output lines to buffer before flush */
 	int outputblock; /* temporarily prevent a maxbuf-based output flush */
 	int redund; /* bool: is this a redund run? */
-
+	int fel;    /* bool: is this a fel run? */
+	long m;	    /* all processes now need m in fel runs from master ... */
 	char *input_filename;		/* input filename */
 	char *input;			/* buffer for contents of input file */
 } mplrsv;
 
 /* A structure for variables only the master needs */
 typedef struct masterv {
-	slist *cobasis_list;		/* list of work to do (L) */
+	slist *L;			/* list of work to do (L) */
+	slist *tail_L;			/* last element in the list */
 	unsigned long tot_L;		/* total size of L (total # jobs) */
 	unsigned long size_L;		/* current size of L (for histograms
 					 * and scaling)
@@ -199,10 +223,16 @@ typedef struct masterv {
 	unsigned int initdepth;		/* option -id   */
 	unsigned int maxdepth;		/* option -maxd */
 	unsigned int maxcobases;	/* option -maxc */
+	unsigned int rows;		/* option -rows */
+	unsigned int lastp;		/* option -lastp */
+	unsigned int lastrows;		/* option -lastrows */
+	unsigned int j;			/* option -j */
 	unsigned int time_limit;	/* option -time */
 	unsigned long maxncob;		/* option -stopafter */
+	int queue; 			/* run L as a queue? default: 0 */
 	int lponly;			/* bool for -lponly option */
 	int redund;			/* bool for -redund option */
+	int fel;			/* bool for fel run */
 	int max_redundworker;		/* max id for a worker
 					 * used if m>np-2
 					 */
@@ -212,6 +242,7 @@ typedef struct masterv {
 	int doing_histogram;		/* are we doing a histogram? */
 	char *freq_filename;		/*are we outputting sub-problem sizes?*/
 	FILE *freq;
+	int flipstart;			/* flip L on a restart? default: 0 */
 	char *restart_filename;		/* restart from a checkpoint */
 	FILE *restart;	
 	char *checkp_filename;		/* filename to save checkpoint*/
@@ -246,8 +277,12 @@ typedef struct consumerv {
 					 * hold output until after 'begin'
 					 */
 	int final_print;		/* do the final print? (bool) */
+	unsigned long long rjobcount;   /* tag individual redund jobs for opt */
 	long *redineq;     /* bool vector for redund, which rows redundant */
 	int final_redundcheck;		/* are we in the final redund check? */
+	long m;				/* private copy of R->m for fel,
+					 * to set things up at end of fel */
+	long rays, vertices, bases;     /* counts for renumber */
 } consumerv;
 
 /* MASTER and CONSUMER and INITIAL must be different */
@@ -282,6 +317,7 @@ typedef struct consumerv {
 void mplrs_init(int, char **);
 void mplrs_caughtsig(int);
 void master_sendfile(void);
+job *new_job(int, char *, long *, unsigned int, long);
 void mplrs_initstrucs();
 void mplrs_commandline(int, char **);
 void mplrs_initfiles(void);
@@ -301,17 +337,21 @@ void master_checkpoint(void);
 void master_checkpointfile(void);
 void master_checkpointconsumer(void);
 void print_histogram(struct timeval *, struct timeval *);
+int L_sorted(void);
+void sort_L(int);
 
 int mplrs_worker(void);
 void mplrs_worker_init(void);
 void clean_outgoing_buffers(void); /* shared with master */
-void do_work(const int *, char *);
+void do_work(const int *, long *, char *);
+void mplrs_worker_send_redineq(void);
+void run_lrs(int, char **, long, long, const int *, long *, char *);
 void worker_report_overflow(void);
 void process_output(void);
 void process_curwarn(void);
 void send_output(int, char *);
-void process_cobasis(const char *);
 slist *addlist(slist *, void *);
+slist *addlist_tail_L(void *);
 void return_unfinished_cobases(void);
 char *append_out(char *, int *, const char *);
 int mplrs_worker_finished(void);
@@ -323,7 +363,6 @@ void consumer_proc_messages(void);
 int consumer_checkpoint(void);
 int outgoing_msgbuf_completed(msgbuf *);
 void free_msgbuf(msgbuf *);
-outlist *reverse_list(outlist*);
 void send_master_stats(void);
 void recv_master_stats(void);
 void send_counting_stats(int);
@@ -341,5 +380,5 @@ void close_outputblock(void);
 void mplrs_cleanstop(int);
 void mplrs_emergencystop(const char *);
 void overflow_cleanup(void);
-void set_restart(const int *, char *);
+void set_restart(const int *, long *, char *);
 #endif /* MPLRSH */
