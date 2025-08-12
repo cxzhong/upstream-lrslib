@@ -7,7 +7,7 @@ SUBDIRS = . mplrs
 # These flags should *not* include the arithmetic selecting define.
 AM_CPPFLAGS = -DTIMES -DSIGNALS
 
-bin_PROGRAMS = 2nash lrs lrs1 lrsnash redund redund1 setnash setnash2
+bin_PROGRAMS = 2nash lrs lrs1 lrsnash redund redund1 setupnash setupnash2
 noinst_PROGRAMS = nashdemo
 
 # No arithmetic
@@ -22,8 +22,8 @@ redund1_SOURCES = lrs.c lrslib.c lrslong.c lrsdriver.c
 redund1_CPPFLAGS = -DLRSLONG
 
 # Home-grown multi-precision arithmetic
-setnash_SOURCES = setupnash.c lrslib.c lrsmp.c lrsdriver.c
-setnash2_SOURCES = setupnash2.c lrslib.c lrsmp.c lrsdriver.c
+setupnash_SOURCES = setupnash.c lrslib.c lrsmp.c lrsdriver.c
+setupnash2_SOURCES = setupnash2.c lrslib.c lrsmp.c lrsdriver.c
 ## original makefile (version 062) target 'allmp' builds redund, lrs with home-grown mp;
 ## whereas 'all' builds it with GMP; see below.
 #redund_SOURCES = redund.c lrslib.c lrsmp.c
