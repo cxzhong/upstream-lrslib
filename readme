@@ -4,8 +4,62 @@ Documentation is currently being maintained at the URL:
 
 http://cgm.cs.mcgill.ca/~avis/C/lrs.html
 -----------------------------------------------------------------------------
+Version 7.3 
+manual: http://cgm.cs.mcgill.ca/~avis/C/lrslib/USERGUIDE73.html
 
+2024.1.31
+New features:
+
+lrs   is now multithreaded with limited parallelization on a shared memory machine using
+      OpenMP. lrs now evaluates in parallel all children of the root in the search tree.
+
+minrep  Finds any hidden linearities and removes redundancy giving a H/V description
+        with minimum number of rows
+
+mplrs -minrep  Fully parallelized version of minrep, replaces "mplrs -redund"
+
+mplrs -fel Does a fully parallel LP redundancy removal in one step of Fourier-Motzin
+           elimination.
+
+Major changes in polyv relative to 7.2:
+ 1. renamed from checkpred, but remains compatible with 7.2 style usage.
+ 2. new features: check equivalency between H/V representations (possibly
+    after projections) using SMT solvers, see the polyv man page for details.
+
+Windows users: recommended to install lrslib using the Windows/WSL Debian or Ubuntu layer
+               otherwise in powershell win.bat may produce lrs.exe and lrsgmp.exe
+               if a relatively recent version of gcc is available - no guarantees!
+
+2023.11.23
+
+single processor
+
+minrep: find a minimum representation ignoring any project/eliminate option
+redund: remove redundant rows from the input ignoring any project/eliminate option
+        if testlin present do minrep
+fel:    Fourier-Motzkin elimination ignoring any redund/redund_list options
+        No project/eliminate option: last column eliminated
+lrs:    H-V transformation unless testlin/redund*/project/eliminate options present
+        testlin only: check for relative interior point and terminate
+        redund/redund_list only: same as redund
+        redund/redund_list+teslin: same as minrep
+        project/eliminate only: same as fel
+        both redund/redund_list and project/eliminate: last input wins
+
+multiple processors
+
+mplrs -minrep     find minimum representation
+      any project/eliminate option should be ignored
+mplrs -fel   parallel version of lrs with project/eliminate option 
+      No project/eliminate option: last column eliminated
+      Assumes input is a minrep, if not it does a minrep instead of fel
+
+mplrs both redund/redund_list and project/eliminate options present: last input wins
+
+
+-----------------------------------------------------------------------------
 Version 7.2 
+manual: http://cgm.cs.mcgill.ca/~avis/C/lrslib/USERGUIDE72.html
 
 2021.6.04
 

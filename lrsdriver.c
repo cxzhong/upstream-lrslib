@@ -5,6 +5,7 @@
 #include <setjmp.h>
 #include <stdlib.h>
 #include <limits.h>
+#include <sys/time.h>
 #include "lrsdriver.h"
 
 /* Globals; these need to be here, rather than lrsdriver.h, so they are
@@ -64,12 +65,21 @@ lrs_alloc_restart()
   R->depth=0;
   R->lrs=1;
   R->redund=0;
+  R->messages=0;
   R->fel=0;
-  R->verifyredund=0;
+  R->testlin = 0;
+  R->redundphase = 0;
   R->redineq = NULL;
   R->rank = 0;
   R->size = 0;
-
   return R;
+}
+
+char *lrs_basename(char *str)
+{
+   int i = strlen(str);
+   while (i>=0 && str[i]!='/' && str[i]!='\\')
+     i--;
+   return str+i+1;
 }
 

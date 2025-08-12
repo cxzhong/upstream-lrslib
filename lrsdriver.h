@@ -5,16 +5,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h> 
 
 #include "lrsrestart.h"
-
 
 struct lrs_dic_struct;
 typedef struct lrs_dic_struct lrs_dic;
 
 struct lrs_dat;
 typedef struct lrs_dat lrs_dat;
-
 
 
 long lrs_main (int argc, char *argv[]);    /* legacy lrs driver, argv[1]=input file, [argc-1]=output file */

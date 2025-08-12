@@ -17,8 +17,9 @@ typedef struct lrs_restart_dat   /* for restarting from a given cobasis         
         long printcobasis;      /* TRUE if option set in lrs, mplrs renumbers   */
         long redund;            /* TRUE if we are doing a redund run            */
         long fel;               /* TRUE if we are doing a fel run               */
+        long testlin;           /* TRUE if we test for hidden linearities       */
+        long redundphase;       /* TRUE if relative interior point exists       */
   
-        long verifyredund;      /* a worker checks redundancy and gives output  */
         long messages;          /* TRUE if lrs should post_output messages      */
         long *redineq;          /* a list of row numbers to check redundancy    */
 
@@ -41,7 +42,7 @@ redund mode:
 
 
 -----------------------------------------------------------------------------------
-fel mode: (fel=TRUE redund=lrs=FALSE verifyredund=FALSE)
+fel mode: (fel=TRUE redund=lrs=FALSE )
 
 rank=0  mplrs expects lrs to return m where m+1 is the dimension of redineq
         after one variable has been eliminated.
@@ -52,9 +53,8 @@ rank=2,...,np-2  mplrs expects eacher worker to return a redineq array with same
         mplrs copies the non-zero values into its own redineq array. After all workers finish
         mplrs chooses the worker with the most "1" values and converts them to "-1"
 
-rank=1  after all workers terminated mplrs supplies its redineq array and sets verifyredund=TRUE. 
+rank=1  after all workers terminated mplrs supplies its redineq array  
         lrs does a redund_run and produces ouput
 
-Looks like we do not need verifyredund since it is equal to (rank==1)  ?
 
 **********************************************************************************/

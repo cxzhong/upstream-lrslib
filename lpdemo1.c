@@ -27,9 +27,6 @@ main (int argc, char *argv[])
   lrs_dat *Q;	/* structure for holding static problem data             */
   lrs_mp_vector output;	/* one line of output:ray,vertex,facet,linearity */
 
-  long i;
-  long m;       /* number of constraints in the problem          */
-  long n;       /* number of variables in the problem + 1        */
   long col;	/* output column index for dictionary            */
 
 /* Global initialization - done once */

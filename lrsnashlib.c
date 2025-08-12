@@ -21,6 +21,7 @@
 #include "lrsnashlib.h"
 
 static long FirstTime; /* set this to true for every new game to be solved */
+
 long Debug_flag;
 long Verbose_flag;
 
@@ -93,6 +94,7 @@ int lrs_solve_nash(game * g)
     return 0;
   }
   BuildRep(P2orig, Q2, g, 0, 1);
+
   A2orig = P2orig->A;
 
   output2 = lrs_alloc_mp_vector(Q1->n + Q1->m); /* output holds one line of output from dictionary     */
@@ -825,8 +827,6 @@ int lrs_solve_nash_legacy (int argc, char *argv[])
 
   output1 = lrs_alloc_mp_vector (Q1->n + Q1->m);   /* output holds one line of output from dictionary     */
 
-  fclose(lrs_ifp);
-
 /* allocate and init structure for player 2's problem data                                   */
 
   printf ("\n*Second input taken from file %s\n", argv[2]);
@@ -988,28 +988,62 @@ void FillNonnegativityRows(lrs_dic * P, lrs_dat * Q, int firstRow, int lastRow, 
   }
 }
 
+
+long str2rat (lrs_mp Na, lrs_mp Da, char *str)	{
+/* Based on readrat in lrsgmp.c           */
+/* convert rational or integer to lrs_mp  */
+/* returns true if denominator is not one */
+
+  char num[MAXINPUT], den[MAXINPUT];
+
+  atoaa (str, num, den);		/*convert rational to num/dem strings */
+  atomp (num, Na);
+  if (den[0] == '\0')
+    {
+      itomp (1L, Da);
+      return (FALSE);
+    }
+  atomp (den, Da);
+  return (TRUE);
+}
+
+
+
 //----------------------------------------------------------------------------------------//
 void FillConstraintRows(lrs_dic * P, lrs_dat * Q, const game * g, int p1, int p2, int firstRow)
 {
-  const int MAXCOL = 1000;      /* maximum number of columns */
-  long num[MAXCOL], den[MAXCOL];
-  ratnum x;
-  int row, s, t;
+
+  lrs_mp_vector Num, Den;
+  char *onePayoff;
+  int row, s, t, d;
+
+  d = P->d;  // Should equal g->nstrats[p2] + 1?
+
+  Num = lrs_alloc_mp_vector(d+1);
+  Den = lrs_alloc_mp_vector(d+1);
 
   for (row = firstRow; row < firstRow + g->nstrats[p1]; row++) {
-    num[0] = 0;
-    den[0] = 1;
+		itomp (ZERO, Num[0]);
+		itomp (ONE,  Den[0]);
+
     s = row - firstRow;
     for (t = 0; t < g->nstrats[p2]; t++) {
-      x = p1 == ROW ? g->payoff[s][t][p1] : g->payoff[t][s][p1];
-      num[t + 1] = -x.num;
-      den[t + 1] =  x.den;
+			onePayoff = p1 == ROW ? g->payoff[p1][s][t] : g->payoff[p1][t][s];
+			str2rat(Num[t + 1], Den[t + 1], onePayoff);
+			if(!zero(Num[t + 1]))
+				changesign(Num[t + 1]);
     }
-    num[g->nstrats[p2] + 1] = 1;
-    den[g->nstrats[p2] + 1] = 1;
-    lrs_set_row(P, Q, row, num, den, GE);
+
+		itomp (ONE, Num[g->nstrats[p2] + 1]);
+		itomp (ONE, Den[g->nstrats[p2] + 1]);
+
+    lrs_set_row_mp(P, Q, row, Num, Den, GE);
   }
+
+  lrs_clear_mp_vector(Num,d+1);
+  lrs_clear_mp_vector(Den,d+1);
 }
+
 
 //----------------------------------------------------------------------------------------//
 void FillLinearityRow(lrs_dic * P, lrs_dat * Q, int m, int n)
@@ -1073,48 +1107,43 @@ void BuildRep(lrs_dic * P, lrs_dat * Q, const game * g, int p1, int p2)
 //----------------------------------------------------------------------------------------//
 void printGame(game * g)
 {
-  int s, t;
-        char out[2][MAXINPUT];
+  int s, t, pos, len;
+  int *fwidth[2];
+
+/* Storage for field witdths. g->nstrats[COL] columns for both players */
+
+  fwidth[ROW] = (int *)calloc(g->nstrats[COL], sizeof(int));
+  fwidth[COL] = (int *)calloc(g->nstrats[COL], sizeof(int));
+
+/* Get column widths for output*/
+
+	for(pos=0; pos<2; pos++) {
+  	for (t = 0; t < g->nstrats[COL]; t++) {
+			fwidth[pos][t] = 0;
+  		for (s = 0; s < g->nstrats[ROW]; s++) {
+				len = strlen(g->payoff[pos][s][t]);
+				if(len > fwidth[pos][t])
+					fwidth[pos][t] = len;
+			}
+		}
+	}
+/* print payoffs */ 
+
   fprintf(lrs_ofp, "\n--------------------------------------------------------------------------------\n");
-  fprintf(lrs_ofp, "%s payoff matrix:\n", ((gInfo *)g->aux)->name);
+  fprintf(lrs_ofp, "%s payoff matrix:\n", g->name);
   for (s = 0; s < g->nstrats[ROW]; s++) {
-    for (t = 0; t < g->nstrats[COL]; t++) {
-                        if(g->payoff[s][t][ROW].den == 1)
-                                sprintf(out[ROW], "%ld,", g->payoff[s][t][ROW].num);
-                        else
-                                sprintf(out[ROW], "%ld/%ld,", g->payoff[s][t][ROW].num, g->payoff[s][t][ROW].den);
-                        if(g->payoff[s][t][COL].den == 1)
-                                sprintf(out[COL], "%ld", g->payoff[s][t][COL].num);
-                        else
-                                sprintf(out[COL], "%ld/%ld", g->payoff[s][t][COL].num, g->payoff[s][t][COL].den);
-                        fprintf(lrs_ofp, "%*s%-*s  ", ((gInfo *)g->aux)->fwidth[t][ROW]+1, out[ROW], ((gInfo *)g->aux)->fwidth[t][COL], out[COL]);
-    }
+    for (t = 0; t < g->nstrats[COL]; t++)
+			fprintf(lrs_ofp, "%*s, %-*s  ", fwidth[ROW][t], g->payoff[ROW][s][t], fwidth[COL][t], g->payoff[COL][s][t]);
     fprintf(lrs_ofp, "\n");
-  }
+	}
+
   fprintf(lrs_ofp, "\nNash equilibria:\n");
   fflush(lrs_ofp);
+
+	free(fwidth[ROW]);
+	free(fwidth[COL]);
 }
 
-// Functions to set field widths for pretty printing of payoff matrices
-void setFwidth(game *g, int len) {
-        int pos, t;
-  for (t = 0; t < g->nstrats[COL]; t++)
-        for (pos = 0; pos < 2; pos++)
-                        ((gInfo *)g->aux)->fwidth[t][pos] = len;
-}
-
-void initFwidth(game *g) {
-        int pos, t;
-  for (t = 0; t < g->nstrats[COL]; t++)
-        for (pos = 0; pos < 2; pos++)
-                        ((gInfo *)g->aux)->fwidth[t][pos] = 0;
-}
-
-void updateFwidth(game *g, int col, int pos, char *str) {
-        int len = strlen(str);
-        if(len > ((gInfo *)g->aux)->fwidth[col][pos])
-                ((gInfo *)g->aux)->fwidth[col][pos] = len;
-}
 
 void resetNashSolver() { FirstTime = TRUE; }
 /******************** end of lrsnashlib.c ***************************/

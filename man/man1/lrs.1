@@ -1,4 +1,4 @@
-.TH "lrs" "1" "2022.1.18" "January 2022" "lrs 7.2"
+.TH "lrs" "1" "2023.1.4 " "January 2023" "lrs 7.3"
 .\" -----------------------------------------------------------------
 .\" * Define some portability stuff
 .\" -----------------------------------------------------------------
@@ -23,13 +23,13 @@ lrs  -   Convert between representations of convex polyhedra, remove redundant i
 convex hull computation, volume, triangulation, solution to linear programs in exact precision.
 .SS "Synopsis"
 .HP \w'\fBlrs\fR\ [input-file] [output-file]\ 'u
-\fBlrs\fR\ \fI[input-file] [output-file]\fR
+\fBlrs\fR\ \fI[input-file] [output-file]\fR 
 .HP \w'\fBredund\fR\ [input-file] [output-file]\ 'u
-\fBredund\fR\ \fI[input-file] [output-file]\fR
+\fBredund|minrep\fR\ \fI[input-file] [output-file]\fR      \fBSee: redund(1) \fR 
 .HP \w'\fBfel\fR\    [input-file] [output-file]\ 'u
-\fBfel\fR\ \fI[input-file] [output-file]\fR
+\fBfel\fR\ \fI[input-file] [output-file]\fR           \fBSee: fel(1)\fR
 .HP \w'\fBhvref/xref\fR\ [input-file] \ 'u
-\fBhvref/xvref\fR\ \fI[input-file]\fR 
+\fBhvref/xref\fR\ \fI[input-file]\fR                  \fBSee: xref(1)\fR 
 .SS "Description"
 .PP
 These programs are part of and must be compiled with
@@ -45,46 +45,56 @@ known respectively as the
 \fIvertex enumeration\fR
 and
 \fIfacet enumeration\fR problems\& (see Example (1) below).
-For V-representations the volume can be computed and a triangulation
-produced. 
-lrs can also be used to solve a linear program, remove linearities from a system,
-and extract a subset of columns.
+For V-representations the volume can be computed and a triangulation.
+From v7.3 \fIlrs\fR is multi-threaded giving some partial parallelization
+that gives some speedup on shared
+memory machines. See \fBthreads\fR option.
+For a fully parallel version see \fBmplrs(1) \fR.
+\fIlrs\fR can also be used to solve a linear program and perform, using options,
+the functions of \fIredund, minrep, fel\fR and
+can extract a subset of columns.
 .PP
-\fIredund\fR
-removes redundant inequalities in an input H-representation and outputs the remaining inequalities\&. 
-For a V-representation it
+\fIredund|minrep\fR
+.br
+These are aliases of \fIlrs\fR which can also perform these functions via
+the \fBredund\fR,  \fBredund_list\fR  and \fBtestlin\fR options.
+For a more complete description and examples see \fBredund(1)\fR.
+.br
+\fIH-representation:\fR
+redundant inequalities in an input H-representation are removed and
+the remaining inequalities output. In addition \fIminrep\fR checks
+for hidden linearities. 
+.br
+\fIV-representation:\fR
 outputs all extreme points and extreme rays, often called the
-\fIconvex hull\fR problem. 
-Both outputs can be piped directly into \fIlrs\fR.
-\fIredund\fR is a link to \fIlrs\fR which performs these functions via 
-the \fBredund\fR and \fBredund_list\fR options. See Example (2) below.
+\fIconvex hull\fR problem. In addition \fIminrep\fR checks 
+for hidden linearities. 
 .PP
 \fIfel\fR
 projects an input H-representation onto a given set of variables using Fourier-Motzkin elimination.
 For a V-representation it extracts the specified columns.
 The output is non-redundant and can be
 can be piped directly into \fIlrs\fR.
-\fIfel\fR is a link to \fIlrs\fR which performs these functions via
+This is an alias of \fIlrs\fR which can also perform these functions via
 the \fBeliminate\fR and \fBproject\fR options.
 .PP
-\fIhvref/xvref\fR\ produce a cross reference list between H- and V-representations.
-See \fBUTILITIES\fR.
+\fIhvref/xref\fR\ produce a cross reference list between H- and V-representations.
+See \fBxref(1)\fR.
 .PP
 \fImplrs\fR
 is Skip Jordan's parallel wrapper based on MPI for \fIlrs/redund\fR using the same
 input and output formats. 
-See: \m[blue]\fBman mplrs \fR
-\m[]
+See: \fBmplrs(1)\fR
 .PP
-Fukuda\*(Aqs
-\m[blue]\fBFAQ page\fR\m[]\&\s-2\u[1]
+Fukuda's
+\fBFAQ page\fR[1]
 contains a more detailed introduction to the problem, along with many useful tips for the new user\&.
-User's guide for \m[blue]\fBlsrslib\fR\m[]\u[8]
+User's guide for \fBlsrslib\fR[8]
 
 .SS "File formats"
 .PP
 File formats were developed jointly with Komei Fukuda and are compatible with
-\m[blue]\fBcdd/cddlib\fR\m[]\&\s-2\u[2]\d\s+2\&.
+\fBcdd/cddlib\fR[2].
 .br
 The input for
 \fIlrs/redund\fR
@@ -193,9 +203,9 @@ If there are multiple optimum vertices, the output will often not be complete\&.
 \fBestimates k\fR
 .br
 Estimate the output size\&. Used in conjunction with \fBmaxdepth\fR and \fBseed\fR.
-See: \m[blue]\fBEstimation\fR\m[]\&\s-2\u[3]\d\s+2
+See: \fBEstimation\fR[3].
 .PP
-\fBeliminate  k   i_1 i_2 ... i_k  \fR          (new in v7.2)
+\fBeliminate  k   i_1 i_2 ... i_k  \fR          (see \fBfel(1)\fR)
 .br
 \fI(H-representation)\fR Eliminates k variables in an H-representation corresponding to cols i_1 .. i_k
 by projection onto the remaining variables
@@ -209,7 +219,7 @@ Column indices are between 1 and n-1 and column zero cannot be eliminated.
 The output is a valid lrs input file. 
 See also \fBproject\fR and \fBextract\fR
 .PP
-\fBextract [ k   i_1 i_2 ... i_k ] \fR          (new in v7.1)
+\fBextract [ k   i_1 i_2 ... i_k ] \fR  
 .br
 \fI(H-representation)\fR A preprocessing step to remove linearities (if any) 
 in an H-representation and resize the A matrix.
@@ -217,8 +227,10 @@ The output as a valid lrs input file. The resulting file will not contain any eq
 but may not be full dimensional as there may be additional linearities in the 
 remaining inequalities. Options in the input file are stripped.
 The user can specify the k columns i_1 i_2 ... i_k to retain
-otherwise if k=0 the columns are considered in the order 1,2,..n-1. 
-Linear dependent columns are skipped and additional indices are taken from 1,2,...,n-1 as necessary.
+otherwise if k=0 or is ommitted 
+the lex-min set of columns are retained, equivalent to the
+the order 1,2,..n-1. 
+Linearly dependent columns are skipped and additional indices are taken from 1,2,...,n-1 as necessary.
 If there are no linearities in the input file the given columns are retained
 and the other ones are deleted. 
 .br
@@ -235,7 +247,7 @@ For input V\-representation, indices of all input vertices/rays that lie on the 
 about to be output\&. A starred index indicates that this vertex\ \& is also in the cobasis, 
 but is not contained in the facet\&. It arises due to the lifting operation used with input V\-representations\&.
 .PP
-\fBlinearity\ \& k\ \& i_1 \ i_2 \ \&... \ i_k \fR
+\fBlinearity\ \& k\ \& i_1 \ i_2 \ \&... \ i_k \fR     (placed before begin statement)
 .br
 (H-representation) The k rows  i_1 \ i_2 \ \&... \ i_k \fR \ of the input file
 represent  equations\&. 
@@ -245,7 +257,7 @@ in space (rather than rays).
 \fBlponly\fR Solve the LP given by the input H-representation with objective function specified
 by the \fBmaximize\fR or \fBminimize\fR options and terminate. Use with \fBverbose\fR option
 to get dual variables. See:
-\m[blue]\fBLinear Programming\fR\m[]\&\s-2\u[4]\d\s+2
+\fBLinear Programming\fR[4].
 .PP
 \fBmaxcobases k\fR
 .br
@@ -255,7 +267,7 @@ The search will be truncated after k\& cobases have been generated.
 \fBmaxdepth k\fR
 .br
 The search will be truncated at depth k\&. All bases with depth less than or equal to k will be computed\&.\ \& k is\ \& a non\-negative integer, and this option is used for estimates \- see
-\m[blue]\fBEstimation\fR\m[]\&\s-2\u[3]\d\s+2
+\fBEstimation\fR[3].
 \fBNote\fR: For H\-representations, rays at depth k will not be reported\&. For V\-representations, facets at depth k will not be reported\&.
 .PP
 \fBmaximize\ \&  b \ a_1 \&.\&.\&. a_{n-1} \fR\ \&
@@ -275,6 +287,11 @@ along with the optimum value. Using
 \fBverbose\fR the optimizing lines are also printed. With minimization a facet gives an optimum value of zero,
 a negative value indicates infeasibility and a positive value indicates strong redundancy. 
 .PP
+\fBmaxincidence n k\fR
+.br
+Prunes the search tree when the depth is at least k and the current vertex/facet has incidence at least n.
+Using \fBverbose\fR a message is printed whenever the search tree is pruned.
+.PP
 \fBmaxoutput n\fR
 .br
 Limits number of output lines produced (either vertices+rays or facets) to n
@@ -288,7 +305,7 @@ Backtracking will be terminated at depth k.
 For problems where the input is an H\-representation of the form b+Ax>=0, x>=0 (ie\&. all variables non\-negative, all constraints inequalities) it is not necessary to give the non\-negative constraints explicitly if the nonnegative option is used\&. 
 This option cannot be used for V\-representations, or with the linearity option (in which case the linearities will be treated as inequalities)\&. This option may be used with redund , but the implied nonnegativity constraints are not tested themselves for redundancy\&. 
 .PP
-\fBproject  k   i_1 i_2 ... i_k  \fR          (new in v7.2)
+\fBproject  k   i_1 i_2 ... i_k  \fR          (see \fBfel(1)\fR)
 .br
 \fI(H-representation)\fR Project the polyhedron onto the k variables corresponding to cols i_1 .. i_k
 using the Fourier-Motzkin method. Column  indices are between 1 and n-1 and column
@@ -324,16 +341,16 @@ for more information\&.
 strictly for the current vertex, ie\&. corresponding slack variable is positive\&. If nonnegative is set, the list will also include indices n+i for each decision variable x_i
 which is positive\&.
 .PP
-\fBredund start end \fR                      (new in v7.1)
+\fBredund start end \fR            (see \fBredund(1)\fR)      
 .br
 Check input lines with line numbers from start to end and remove any redundant lines.
 .br
-\fBredund 0 0\fR  will check all input lines.  See \m[blue]\fBredund\fR\m[]\&\s-2\u[7]\d\s+2
+\fBredund 0 0\fR  will check all input lines. 
 .PP
-\fBredund_list k   i_1 i_2 ... i_k\fR            (new in v7.1)
+\fBredund_list k   i_1 i_2 ... i_k\fR    (see \fBredund(1)\fR)         
 .br
 Check the k input line numbers with indices i_1 i_2 ... i_k  
-and remove any redundant lines. See \m[blue]\fBredund\fR\m[]\&\s-2\u[7]\d\s+2
+and remove any redundant lines.
 .PP
 \fBrestart\ \& V# R# B# depth {facet #s or vertex/ray #s\fR} 
 .br
@@ -357,8 +374,22 @@ that define it. If it is invalid, or this option is not specified,
 \fIlrs\fR
 will find its own starting cobasis\&.
 .PP
-\fBtruncate\fR \ 
-The reverse search tree is truncated(pruned)\ \& whenever a new vertex is encountered\&. Note: This does note necessarily produce the set of all vertices adjacent to the optimum vertex in the polyhedron, but just a subset of them\&.
+\fBtestlin\fR      \fB(before the begin line only)\fR   \fIH-representation\fR only    (new 7.3)
+.br 
+An LP test will be made for hidden linearities in the input file.
+If neither \fBredund\fR or \fBredund_list\fR options are present the initial
+LP test is made, reported and the run halted. 
+Otherwise the run is equivalent to \fIminrep\fR.
+.PP
+\fBthreads n\fR      (new in 7.3, disabled for mplrs) 
+.br
+Multithreaded lrs for the H-V conversion problem using openMP.
+A parallel search of the reverse search tree is performed
+at depth 1. 
+If n is not specified the default openMP max threads is used.
+.PP
+\fBtruncate\fR 
+The reverse search tree is truncated(pruned) whenever a new vertex is encountered\&. Note: This does note necessarily produce the set of all vertices adjacent to the optimum vertex in the polyhedron, but just a subset of them\&.
 .PP
 \fBverbose\fR
 Print slightly more detailed information about the run\&.
@@ -367,13 +398,13 @@ Print slightly more detailed information about the run\&.
 (V\-representation only) 
 Compute the volume and, if the \fBverbose\fR option is also included,
 output a \fBtriangulation\fR. See 
-\m[blue]\fBVolume Computation\fR\m[]\&\s-2\u[5]\d\s+2
+\fBVolume Computation\fR[5].
 .PP
 \fBvoronoi\fR
 (V\-representation\ \& only \- place immediately after end statement)  
 .br
 Compute Voronoi diagram \- see
-\m[blue]\fBVoronoi Diagrams\fR\m[]\&\s-2\u[6]\d\s+2
+\fBVoronoi Diagrams\fR[6].
 .SS "Arithmetic"
 From version 7.1 \fIlrs/redund/mplrs\fR use hybrid arithmetic with overflow checking, 
 starting in 64bit integers, moving to 128bit (if available) and then GMP.
@@ -434,70 +465,6 @@ http://www.flintlib.org/
  1 -1 -1 -1
  end
  *Totals: vertices=8 rays=0 bases=8 integer_vertices=8
-.PP
-(2) Compute the extreme points of a set of 10 points in R^3
-.PP
- % cat c.ext
- V-representation
- begin
- 10 4 rational
- 1  1  1  1 
- 1  0  1  1 
- 1 1/2 0 1/3
- 1  1  1  0 
- 1  0  1  0 
- 1  1  0  0 
- 1  0  0  0 
- 1  0 1/3 1/4
- 1  1  0  1 
- 1  0  0  1 
- end
-
- % redund c.ext
-
- *redund:lrslib v.7.2 2020.6.8(64bit,lrslong.h,hybrid arithmetic)
- *Input taken from  c.ext
- V-representation
- begin
- 8 4 rational
- 1  1  1  1 
- 1  0  1  1 
- 1  1  1  0 
- 1  0  1  0 
- 1  1  0  0 
- 1  0  0  0 
- 1  1  0  1 
- 1  0  0  1 
- end
- *Input had 10 rows and 4 columns
- * 2 redundant row(s) found:
- 3 8
-
-.SS "Utilities"
-.PP
-\fBhvref/xref\fR   Cross reference listing between V- and H-representations  (new in v7.1)
-
-In the example below we start from an H-representation of cube.ine but the same
-steps apply to the V-representation cube.ext.
-It is recommended to first remove any redundancies from the input file using redund.
-
-1. Add  \fBprintcobasis\fR and \fBincidence\fR options to cube.ine
-
-% lrs cube.ine cube.ext   
-.br
-% xref cube.ext
-
-2. Edit the output file  cube.ext.x to insert a second line that contains two integers
-
-rows maxindex
-
-where rows >= # output lines in cube.ext.x
-      maxindex >= # input lines in cube.ine
-
-or just use 0 0 and run hvref, the output will tell you which values to use.
-
-% hvref cube.ext.x
-
 
 .SS "Notes"
 .IP " 1." 4

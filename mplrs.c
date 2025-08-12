@@ -60,9 +60,8 @@ int main(int argc, char **argv)
 
 void mplrs_init(int argc, char **argv)
 {
-	int i,j,count;
-	int header[6];
-	char c;
+	int count;
+	int header[9];
 	time_t curt = time(NULL);
 	char *tim, *tim1;
 	long *wred = NULL; /* redineq for redund */
@@ -105,7 +104,8 @@ void mplrs_init(int argc, char **argv)
 		/* may have produced warnings from stage 0 lrs, flush them. */
 		if (mplrs.output_list == NULL) /* need to prod consumer */
 			post_output("warning"," "); /* see waiting_initial */
-		process_output();          /* before starting a flush */
+		mplrs.dummyout=0; 	  /*avoid unitialized valgrind message*/
+		process_output();	  /* before starting a flush */
 		clean_outgoing_buffers();
 	}
 	else
@@ -116,23 +116,41 @@ void mplrs_init(int argc, char **argv)
 		if (mplrs.rank == CONSUMER)
 			mplrs_initfiles();
 		/* receive input file from master */
-		MPI_Recv(header, 6, MPI_INT, 0, 20, MPI_COMM_WORLD, 
+		MPI_Recv(header, 9, MPI_INT, 0, 20, MPI_COMM_WORLD, 
 			 MPI_STATUS_IGNORE);
 		count = header[0];
 		mplrs.abortinit = header[3];
+		mplrs.fel = header[4];
+		mplrs.nohiddenl = header[7];
+
 		mplrs.input = malloc(sizeof(char)*(count+1));
 		if (!mplrs.abortinit) /* don't need if aborting, may be big */
 			MPI_Recv(mplrs.input, header[0], MPI_CHAR, 0, 20, 
 				 MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 		mplrs.input[count] = '\0';
-		mplrs.fel = header[4];
 
 		mplrs.redund = mplrs.fel; /* TODO: this is a hack; do better */
 		mplrs.renumber = header[5];
+		mplrs.testlin = header[6];
+		if (mplrs.rank == CONSUMER)
+		{
+			consumer.felfallback = header[8];
+			if (mplrs.abortinit)
+				consumer.final_print = 0;
+		}
+		/* workers don't need to look for non-existent linearities */
+		if (!mplrs.abortinit && mplrs.nohiddenl == 1 &&
+		    mplrs.rank!=CONSUMER)
+			remove_option(mplrs.input, count, "testlin");
 
-		mprintf2(("%d: fel,renumber:%d,%d\n", mplrs.rank, mplrs.fel, mplrs.renumber));
+		mprintf2(("%d: redund,fel,testlin,renumber,nohiddenl:%d,%d,%d,%d,%d\n",
+			  mplrs.rank, mplrs.redund, mplrs.fel, mplrs.testlin, 
+			  mplrs.renumber, mplrs.nohiddenl));
 		mplrs.m = header[2];
-	
+
+		/* get temporary filename needed for worker files */
+		mplrs_init_tfn(tim1);
+
 		if (mplrs.fel && mplrs.rank == CONSUMER)
 		{
 			consumer.m = header[2];
@@ -148,37 +166,20 @@ void mplrs_init(int argc, char **argv)
 		else if (header[1]>0)
 			mplrs.redund = 1;
 
-		/* get number of chars needed for worker files */
-		j = mplrs.size;
-		for (i=1; j>9; i++)
-			j = j/10;
-		i += 6+strlen(tim1); /* mplrs_TIMESTAMP */
-		i += strlen(mplrs.tfn_prefix) + strlen(mplrs.input_filename) + 
-		     i + 6; /* _%d.ine\0 */
-		mplrs.tfn = malloc(sizeof(char) * i);
-		sprintf(mplrs.tfn, "%smplrs_%s%s_%d.ine", 
-						  mplrs.tfn_prefix, tim1, 
-						  mplrs.input_filename,
-					 	  mplrs.rank);
-		/* flatten directory structure in mplrs.input_filename
-		 * for mplrs.tfn, to prevent writing to non-existent
-		 * subdirectories in e.g. /tmp
-		 */
-		i = strlen(mplrs.tfn_prefix) + 6 + strlen(tim1);
-		j = strlen(mplrs.tfn);
-		for (; i<j; i++)
+		/* we will need a secound parallel round */
+		/* not used on consumer */
+		if (mplrs.redund && mplrs.testlin && !mplrs.nohiddenl &&
+		    mplrs.rank!=CONSUMER)
 		{
-			c = mplrs.tfn[i];
-			if (c == '/' || c == '\\')
-				mplrs.tfn[i] = '_';
+			mplrs.minrep_nonfinal = 1;
+			mplrs.redineq = calloc(header[2]+1, sizeof(long));
 		}
-		
 	}
 
 	/* setup signals --
-         * TERM checkpoint to checkpoint file, or output file if none & exit
+	 * TERM checkpoint to checkpoint file, or output file if none & exit
 	 * HUP ditto
-         */
+	 */
 	signal(SIGTERM, mplrs_caughtsig);
 	signal(SIGHUP, mplrs_caughtsig);
 	free(wred);
@@ -210,6 +211,7 @@ void mplrs_handlesigs(void)
  * output if desired.
  * Does not return to caller ... ugly
  */
+/* not used and untested as of 3/16/2023 */
 void mplrs_cleanstop(int checkpoint)
 {
 	MPI_Request req = MPI_REQUEST_NULL;
@@ -301,24 +303,37 @@ void add_redund_jobs(long rcount, long m)
 	unsigned int cutoff = 0; /* number of jobs before lastp, lastrows */
 	int ex = 0;
 
+	if (rcount == 0)
+	{
+		/* can happen in round 2 in minrep mode - we may find hidden
+		 * linearities but no weakly redundant lines.
+		 * could happen with redund 0 0 on empty H-reps, but lrs rejects
+		 * them in stage 0
+		 */
+		mprintf(("M: in add_redund_jobs but rcount==0, no jobs to make\n"));
+		return;
+	}
+
 	/* option -j overrides -rows -lastrows -lastp */
 	if (master.j > 0)
 	{
-		master.rows = master.lastrows = m/(master.j*(mplrs.size-2));
-		mprintf(("M: -j option, setting rows to %u\n", master.rows));
+		master.rows = master.lastrows = rcount / (master.j * (mplrs.size - 2));
+		extra = rcount % (master.j * (mplrs.size - 2));
+		mprintf(("M: -j option, setting rows to %u, splitting %lu extra rows evenly to get %u jobs per worker\n", master.rows, extra, master.j));
 	}
 
-	if (master.rows > m/(mplrs.size-2))
+	if (master.rows > rcount/(mplrs.size-2))
 		master.rows = 0;
 
 	if (master.rows==0)
 	{
 		if (m>mplrs.size-2)
 		{
-			master.rows = m / (mplrs.size-2);
-			extra = m%(mplrs.size-2);
-			if (extra>0)
-				ex = 1;
+			master.rows = rcount / (mplrs.size-2);
+			extra = rcount%(mplrs.size-2);
+			if (master.rows == 0) /* prevent divide by 0 below,
+					       * min job size is 1 row */
+				master.rows = 1; /* note rcount is not 0 */
 		}
 		else
 			master.rows = 1;
@@ -328,6 +343,12 @@ void add_redund_jobs(long rcount, long m)
 		master.lastrows = master.rows;
 
 	njobs = (rcount / master.rows) + (rcount%master.rows>0 ? 1 : 0);
+	if (extra>0) /* if we're splitting evenly and doesn't divide evenly,*/
+	{	     /* put ex (1) many extra rows in the first extra rows */
+		ex = 1;
+		njobs--;
+	}
+		
 	cutoff = (float)(100-master.lastp)/100.0 * njobs;
 
 	while (c<rcount)
@@ -351,20 +372,20 @@ void add_redund_jobs(long rcount, long m)
 			}
 		}
 		for (k=0; k<nlinearities;)
-			for (h=0; h<m; h++)
+			for (h=0; h<=m; h++)
 				if (mplrs.R->redineq[h] == 2)
 					nums[j + (k++)] = -1 * h;
-		
+
 		if (extra>0)
 			extra--;
 		if (extra==0)
 			ex=0;
 
-		mprintf3(("M: adding redund job to L:"));
+		mprintf3(("M: adding redund job (%u rows) to L:", j));
 		for (k=0; k<j+nlinearities; k++)
 			mprintf3((" %ld", nums[k]));
 		mprintf3(("\n"));
- 
+
 		master.L = addlist_tail_L(new_job(1, NULL, nums, 
 						  j+nlinearities,-1));
 		master.tot_L++; master.size_L++;
@@ -375,58 +396,35 @@ void add_redund_jobs(long rcount, long m)
 void master_sendfile(void)
 {
 	char *buf;
+	char *buf_testlin=NULL; /* for adding testlin option */
+	char *orig=NULL; /* to send consumer in fel mode with hidden linearity*/
 	int count=0;
 	int extra=0;
-	int header[6]={0};
+	int header[9]={0};
 		/* header: input file size, redund, R->m,
-			   abortinit, fel, renumber */
-		/* TODO: no longer need to tell workers redund/etc */
+			   abortinit, fel, renumber, testlin, nohiddenl,
+			   felfallback */
+	/* felfallback normally 0, 1 if actually a fel run but found hidden
+	 * linearities, so fell back to minrep. used by consumer to print
+	 * informative message at end of run.
+	 */
 	int c, i;
 	long rcount = 0, *wred = NULL;
 	long m;
 	char *argv[] = {argv0, mplrs.tfn};
+	time_t curt = time(NULL);
+	char *tim, *tim1;
+	int know_hiddenl = 0; /* now, fel falls through to minrep if hidden
+			       *linearities exist - don't check for them again*/
 
-	/* get m from lrs */
-	mplrs.tfn = mplrs.input_filename;
+	/* make timestamp for filenames */
+	tim = ctime(&curt);
+	tim1 = tim+4;
+	tim1[3] = tim1[6] = '_';
+	tim1[15]='\0';
 
-	mplrs_worker_init(); /* we're the master but okay */
-	header[3] = mplrs.abortinit; /* tell workers to abort if bad input */
-	if (mplrs.overflow != 3 && mplrs.abortinit == 0)
-		m = mplrs.P->m_A;
-	else /* overflow in mplrs_worker_init and non-hybrid, can't start run */
-		m = 0;
-	header[2] = m;
-	if (mplrs.overflow!=3 && mplrs.R->redund && mplrs.abortinit == 0)
-	{
-		master.redund = 1;
-		for (i=1; i<=m; i++)
-			if (mplrs.R->redineq[i] == 1)
-				rcount++;
-	}
-	else if (mplrs.overflow!=3 && mplrs.R->fel && mplrs.abortinit == 0)
-	{
-		mprintf(("M: in fel mode, stage 0 OK, getting new m..."));
-		/* run_lrs stage 1 to get new m_A? */
-		run_lrs(2, argv, 0, 1, NULL, NULL, NULL);
-		if (mplrs.overflow==3)
-			mplrs.abortinit = 1;/* if mplrs1 overflows here */
-		master.fel = 1;
-		m = mplrs.R->m; /* fel gives a new, bigger m_A */
-		mprintf(("done (%ld)\n",m));
-		header[2] = m;    /* tell consumer to allocate this size */
-		for (i=1; i<=m; i++)
-			if (mplrs.R->redineq[i] == 1)
-				rcount++;
-	}
-	header[5] = mplrs.R->printcobasis;
-	mplrs.renumber = header[5];
-
-	/* check free TODO*/
-	if (mplrs.overflow != 3 && !mplrs.abortinit)
-	{
-		mplrs.lrs_main(0,NULL,&mplrs.P,&mplrs.Q,0,2,NULL,mplrs.R);
-	}
-	c = fgetc(master.input);
+	mplrs_init_tfn(tim1); /* for pure redund we need to add an option */
+	c = fgetc(master.input); /*avoid doing it in the original input file..*/
 
 	while (c!=EOF)
 	{
@@ -436,11 +434,11 @@ void master_sendfile(void)
 
 	if (mplrs.countonly)
 		extra = 10; /* \ncountonly */
- 
-	buf = malloc(sizeof(char)*(count+extra));
+
+	buf = malloc(sizeof(char)*(count+extra+1));
 
 	fseek(master.input, 0, SEEK_SET);
-	
+
 	for (i=0; i<count; i++)
 	{
 		c = fgetc(master.input);
@@ -448,12 +446,172 @@ void master_sendfile(void)
 	}
 	if (mplrs.countonly)
 		sprintf(buf+i, "\ncountonly");
+	mplrs.input=buf;
+
+	if (master.fminrep || master.fredund)
+	{ /* README 11.23.2023 says -minrep and -redund over-ride any
+	   * project/eliminate option in input file, so remove them here
+	   */
+	  /* but 2.6.2024 says the consumer should get the original input */
+		orig = malloc(sizeof(char)*(count+extra+1));
+		memcpy(orig, mplrs.input, count+extra+1);
+//		remove_option(mplrs.input, count, "eliminate");
+//		remove_option(mplrs.input, count, "project");
+	}
+
+	/* get m from lrs */
+	mplrs_worker_init(); /* we're the master but okay */
+	master.m_messages = 0;/* no more messages: fel mode has multiple calls*/
+	if (mplrs.overflow != 3 && mplrs.abortinit == 0)
+		m = mplrs.P->m_A;
+	else /* overflow in mplrs_worker_init and non-hybrid, can't start run */
+		m = 0;
+	header[2] = m;
+	header[7] = -1; /* not checked */
+	if (mplrs.overflow!=3 && mplrs.R->testlin && mplrs.abortinit == 0)
+		master.testlin = 1; /* can be with/without redund see mplrs.h */
+
+	if (master.minrep)
+	{
+		master.testlin = 1;
+		master.redund = 1;
+	}
+
+	if (mplrs.overflow!=3 && mplrs.R->fel && mplrs.abortinit == 0)
+	{
+		mprintf(("M: in fel mode, stage 0 OK, checking for hidden linearities\n"));
+		mplrs.lrs_main(0,NULL,&mplrs.P,&mplrs.Q,0,2,NULL,mplrs.R);
+		mplrs.specialmode = 2; /* force fel on, testlin on in phase 0 */
+		mplrs_worker_init();
+		run_lrs(2, argv, 0, 1, NULL, NULL, NULL);
+		mplrs.specialmode = 0; /* back to normal mode */
+		if (mplrs.overflow == 3)
+			mplrs.abortinit = 1;
+
+		mplrs.nohiddenl = mplrs.R->redundphase;
+		master.fel = 1;
+
+		if (!mplrs.abortinit && !mplrs.nohiddenl)
+		{
+			header[7] = mplrs.nohiddenl;
+			mprintf(("M: found hidden linearities, will re-init in minrep run\n"));
+			master.fminrep = master.minrep = 1;
+			know_hiddenl = 1;
+			if (orig==NULL)
+				orig = malloc(sizeof(char)*(count+extra+1));
+			memcpy(orig, mplrs.input, count+extra+1);
+		//	remove_option(mplrs.input, count, "eliminate");
+		//	remove_option(mplrs.input, count, "project");
+			mplrs.lrs_main(0,NULL,&mplrs.P,&mplrs.Q,0,2,NULL,mplrs.R);
+			mplrs_worker_init();
+			if (mplrs.overflow!=3 && mplrs.abortinit==0)
+				m = mplrs.P->m_A;
+			else
+				m = 0;
+			header[2] = m;
+			header[7] = mplrs.nohiddenl;
+			header[8] = 1;
+			master.testlin = 1;
+			master.redund = 1;
+			master.fel = 0;
+		}
+		else if (!mplrs.abortinit)
+		{
+		   /* clean up and restart after hidden linearity check,
+		    * m changes in fel mode
+		    */
+		   mplrs.lrs_main(0,NULL,&mplrs.P,&mplrs.Q,0,2,NULL,mplrs.R);
+		   mplrs.specialmode = 3; /* force fel on, testlin off */
+		   mplrs_worker_init();
+
+		   mprintf(("M: in fel mode, stage 0.5 OK, getting new m..."));
+		   /* run_lrs stage 1 to get new m_A? */
+		   run_lrs(2, argv, 0, 1, NULL, NULL, NULL);
+		   mplrs.specialmode = 0; /* back to normal */
+		   if (mplrs.overflow==3)
+			mplrs.abortinit = 1;/* if mplrs1 overflows here */
+		   master.fel = 1;
+		   m = mplrs.R->m; /* fel gives a new, bigger m_A */
+		   mprintf(("done (%ld)\n",m));
+		   header[2] = m;    /* tell consumer to allocate this size */
+		   for (i=1; i<=m; i++)
+			if (mplrs.R->redineq[i] == 1)
+				rcount++;
+		}
+	}
+
+	if (mplrs.overflow!=3 && mplrs.R->redund && mplrs.abortinit == 0)
+	{
+		master.redund = 1;
+		for (i=1; i<=m; i++)
+			if (mplrs.R->redineq[i] == 1)
+				rcount++;
+		if (master.testlin)
+		{
+			master.minrep = 1;
+			mprintf(("M: in minrep mode\n"));
+		}
+		else
+			mprintf(("M: in redund mode\n"));
+
+		if (!know_hiddenl) /* fel mode already checked - don't repeat */
+		{
+		   /* check if there are hidden linearities */
+		   if (master.minrep || !mplrs.R->testlin) /* need to add it to input and re-init */
+		   {
+			buf_testlin = dupstr(buf); 
+				/* don't add testlin now: add_testlin_option(buf, count+extra);*/
+			mplrs.lrs_main(0,NULL,&mplrs.P,&mplrs.Q,0,2,NULL,mplrs.R);
+			mplrs.input = buf_testlin;
+			mplrs_worker_init();
+		   }
+		   mplrs.R->redund = 0;
+		   mplrs.R->testlin = 1;
+		   mprintf(("M: checking if hidden linearities exist\n"));
+		   mplrs.specialmode = 1; /* force mplrs.R->redund=0 on overflows*/
+		   run_lrs(2, argv, 0, 1, NULL, NULL, NULL);
+		   mplrs.R->testlin = master.testlin;
+		   mplrs.specialmode = 0;
+		   if (mplrs.overflow==3) /* can overflow fatally here */
+			mplrs.abortinit = 1;
+		   else
+			mplrs.nohiddenl = mplrs.R->redundphase;
+		   header[7] = mplrs.nohiddenl;
+		   if (master.minrep || !mplrs.R->testlin)
+		   {
+			free(buf_testlin);
+			mplrs.input = buf;
+			mplrs.lrs_main(0,NULL,&mplrs.P,&mplrs.Q,0,2,NULL,mplrs.R);
+			mplrs_worker_init();
+		   }
+		}
+	
+		if (mplrs.nohiddenl)
+		{
+			master.minrep_round = 2;
+			mprintf(("M: no hidden linearities exist, doing fast redund/minrep\n"));
+		}
+		else
+			mprintf(("M: hidden linearities exist, doing two-round redund/minrep\n"));
+
+	}
+
+	header[3] = mplrs.abortinit; /* tell workers to abort if bad input */
+	header[5] = mplrs.R->printcobasis;
+	mplrs.renumber = header[5];
+
 	header[0] = count+extra;
 
 	if (master.redund || master.fel) /* add redund jobs to L */
 		add_redund_jobs(rcount,m);
 
 	header[4] = master.fel;
+	header[6] = master.testlin;
+	if (master.redund && master.testlin)
+	{
+		master.redineq = calloc(m+1, sizeof(long));
+		master.merged_redineq = calloc(mplrs.size, sizeof(long));
+	}
 
 	for (i=0; i<mplrs.size; i++)
 	{
@@ -465,18 +623,23 @@ void master_sendfile(void)
 			header[1] = 1;
 		}
 		mprintf2(("M: Sending input file to %d\n", i));
-		MPI_Send(header, 6, MPI_INT, i, 20, MPI_COMM_WORLD);
-		if (!mplrs.abortinit) /* don't need if aborting, may be big */
+		MPI_Send(header, 9, MPI_INT, i, 20, MPI_COMM_WORLD);
+		/* in fel mode, if found hidden linearities, we do minrep.
+		 * but send the consumer the original file, so it gets the
+		 * final print done with project/eliminate included (2/5/24).
+		 */
+		if (!mplrs.abortinit && i==CONSUMER && orig!=NULL)
+			MPI_Send(orig, count+extra, MPI_CHAR, i, 20,
+				 MPI_COMM_WORLD);
+		else if (!mplrs.abortinit)  /* don't if aborting, may be big */
 			MPI_Send(buf, count+extra, MPI_CHAR, i, 20,
 				 MPI_COMM_WORLD);
 	}
 	/* fseek(master.input, 0, SEEK_SET); */
 	fclose(master.input);
-	free(mplrs.R->redineq);
-	free(mplrs.R->facet);
-	free(mplrs.R);
 	free(wred);
 	free(buf);
+	free(orig);
 }
 
 job *new_job(int type, char *cob, long *nums, unsigned int nnums, long depth)
@@ -530,6 +693,11 @@ void mplrs_initstrucs(void)
 	mplrs.maxbuf = DEF_MAXBUF; /* maximum # lines to buffer */
 	mplrs.outputblock = 0; /* don't block initial output */
 	mplrs.redund = 0;
+	mplrs.testlin = 0;
+	mplrs.fel = 0;
+	mplrs.minrep_nonfinal = 0;
+	mplrs.nohiddenl = -1;
+	mplrs.redineq = NULL;
 	mplrs.countonly = 0;
 	mplrs.minheight = 0;
 	mplrs.m = 0;
@@ -557,8 +725,17 @@ void mplrs_initstrucs(void)
 	master.maxncob = DEF_MAXNCOB;
 	master.queue = 0;
 	master.lponly = 0;
-	master.redund = 0;
+	master.fredund = master.redund = 0;
+	master.testlin = 0;
+	master.fminrep = master.minrep = 0;
 	master.fel = 0;
+	master.cfel = 0;
+	master.m_messages = 1;
+	master.redineq = NULL;
+	master.merged_redineq = NULL;
+	master.n_merged = 0;
+	master.n_minprep = 0;
+	master.minrep_round = 0;
 	master.time_limit = 0;
 	master.hist_filename = DEF_HIST;
 	master.hist = NULL;
@@ -589,6 +766,7 @@ void mplrs_initstrucs(void)
 	consumer.rays = 0;
 	consumer.vertices = 0;
 	consumer.bases = 0;
+	consumer.felfallback = 0;
 }
 
 /* process commandline arguments */
@@ -604,8 +782,8 @@ void mplrs_commandline(int argc, char **argv)
 			if (arg < 1  )
 				bad_args();
 			master.lmin = arg;
-                        if (master.lmin > master.lmax)
-                           master.lmax = arg;
+			if (master.lmin > master.lmax)
+			   master.lmax = arg;
 			continue;
 		}
 		else if (!strcmp(argv[i], "-lmax"))
@@ -616,8 +794,8 @@ void mplrs_commandline(int argc, char **argv)
 				bad_args();
 			master.lmax = arg;
 			master.orig_lmax = 0;
-                        if (master.lmin > master.lmax)
-                           master.lmin = arg;
+			if (master.lmin > master.lmax)
+			   master.lmin = arg;
 			continue;
 		}
 		else if (!strcmp(argv[i], "-scale"))
@@ -738,9 +916,21 @@ void mplrs_commandline(int argc, char **argv)
 			master.lponly = 1;
 			continue;
 		}
+		else if (!strcmp(argv[i], "-minrep"))
+		{	
+			master.fminrep = master.minrep = 1;
+			continue;
+		}
 		else if (!strcmp(argv[i], "-redund"))
 		{
-			master.redund = 1;
+			if (mplrs.rank==CONSUMER)
+				printf("*warning: mplrs -redund mode has been removed, consider using -minrep instead\n");
+			bad_args(); /* die on -redund now */
+			continue;
+		}
+		else if (!strcmp(argv[i], "-fel"))
+		{
+			master.cfel = 1;
 			continue;
 		}
 		else if (!strcmp(argv[i], "-stop"))
@@ -1037,9 +1227,13 @@ int mplrs_master(void)
 			tot_ncob+=ncob;
 			mprintf2(("M: %d looking for work\n", i));
 			if ((master.L!=NULL || phase==1) && 
-			    !master.checkpointing && !want_stop)
+			    !master.checkpointing && !want_stop
+			    && !(master.minrep_round==1 && 
+				 master.merged_redineq[i]!=2))
+			/* don't send round 2 minrep jobs before telling worker
+			 * the new linearities */
 			{ /* and not checkpointing! */
-				send_work(i,phase);
+				send_work(i,phase,0);
 				MPI_Irecv(master.workin+i, 1, MPI_UNSIGNED,i, 6,
 					  MPI_COMM_WORLD, master.mworkers+i);
 				phase=0;
@@ -1047,6 +1241,25 @@ int mplrs_master(void)
 					fprintf(master.freq, "%d\n", ncob);
 				continue;
 			}
+			else if (master.redund && master.testlin &&
+				 master.minrep_round==0 &&
+				 master.merged_redineq[i]==0)
+			{
+				master_minrep_mergeredineq(i);
+				MPI_Irecv(master.workin+i, 1, MPI_UNSIGNED,i, 6,
+					  MPI_COMM_WORLD, master.mworkers+i);
+				continue;
+			}
+			else if (master.redund && master.testlin &&
+				 master.minrep_round==1 &&
+				 master.merged_redineq[i]!=2)
+			{
+				master_minrep_sendredineq(i);
+				MPI_Irecv(master.workin+i, 1, MPI_UNSIGNED,i, 6,
+					  MPI_COMM_WORLD, master.mworkers+i);
+				continue;
+			}
+
 			/* else tell worker we've finished */
 			mprintf(("M: Saying goodbye to %d, %d left\n", i,
 				 master.live_workers-1));
@@ -1083,6 +1296,11 @@ int mplrs_master(void)
 		fclose(master.checkp);
 	free(mplrs.finalwarn);
 	free(mplrs.curwarn);
+	if (!mplrs.abortinit)
+		mplrs.lrs_main(0,NULL,&mplrs.P,&mplrs.Q,0,2,NULL,mplrs.R);
+	free(mplrs.R->redineq);
+	free(mplrs.R->facet);
+	free(mplrs.R);
 	MPI_Finalize();
 	free(master.workin);
 	free(master.mworkers);
@@ -1246,12 +1464,130 @@ void process_returned_cobases(msgbuf *msg)
 
 	return;
 }
-	
+
+/* tell target to take our redineq, merge new linearities */
+/* not called until round 1 finishes, so no more incoming linearities - safe to
+ * Isend master.redineq (it doesn't change)
+ */
+void master_minrep_sendredineq(int target)
+{
+	msgbuf *msg = calloc(1, sizeof(msgbuf));
+	long m = mplrs.R->m;
+	msg->target = target;
+	msg->count = 1;
+	msg->req = malloc(sizeof(MPI_Request));
+	msg->buf = malloc(sizeof(void *));
+	msg->buf[0] = NULL;
+
+	send_work(target, 0, 2);
+
+	/*MPI_Send(master.redineq, m+1, MPI_LONG, target, 6, MPI_COMM_WORLD);*/
+	MPI_Isend(master.redineq, m+1, MPI_LONG, target, 6, MPI_COMM_WORLD,
+		  msg->req);
+	master.merged_redineq[target] = 2;
+	master.n_minprep++;
+	msg->next = mplrs.outgoing;
+	mplrs.outgoing = msg;
+
+	return;
+}
+
+/* tell target to send us their redineq, get it, merge it and
+ * update master.{merged_redineq[target],n_merged,minrep_round}
+ */
+void master_minrep_mergeredineq(int target)
+{
+	long i, m = mplrs.R->m, rcount=0;
+	long *tmp = malloc(sizeof(long)*(m+1));
+	long n_oldlin, n_newlin;
+
+	send_work(target, 0, 1);
+	mprintf(("M: minrep mode(m=%ld); merging redineq from %d\n", m, target));
+	MPI_Recv(tmp, m+1, MPI_LONG, target, 6, MPI_COMM_WORLD, 
+		 MPI_STATUS_IGNORE);
+	master.merged_redineq[target] = 1;
+	master.n_merged++;
+
+	mprintf2(("M: merging values "));
+	for (i=1; i<=m; i++)
+	{
+		mprintf2((" %ld<-%ld", master.redineq[i], tmp[i]));
+		if (master.redineq[i] == 2 || tmp[i] == 0 ||
+		    master.redineq[i] == tmp[i])
+			continue;
+		else if (master.redineq[i] == 0)
+			master.redineq[i] = tmp[i];
+		else if (tmp[i] == 2)
+			master.redineq[i] = tmp[i]; /* linearity wins */
+		else if (tmp[i] == -1)
+			master.redineq[i] = tmp[i]; /* strong overwrites weak */
+		/* otherwise not needed */
+	}
+	mprintf2(("\n"));
+	free(tmp);
+
+	if (master.n_merged == mplrs.size - 2)
+	{       
+		master.minrep_round = 1;
+		mprintf(("M: minrep round 1 finished\n"));
+		n_oldlin = 0, n_newlin = 0;
+		for (i=1; i<=m; i++)
+		{
+			if (mplrs.R->redineq[i] == 2)
+				n_oldlin++;
+			if (master.redineq[i] == 2 || master.redineq[i]==-2)
+				n_newlin++;
+		}
+		mprintf(("M: minrep mode found %ld new linearities\n", n_newlin-n_oldlin));
+		if (n_oldlin > n_newlin)
+		{
+			printf("mplrs: number of linearities decreased!\n");
+			exit(1);
+		}
+		else if (n_oldlin == n_newlin)
+		{
+			if (!mplrs.nohiddenl)
+				printf("*warning: lrslib said hidden linearities but we found none!\n");
+			master.minrep_round = 2; /* all done */
+			return;
+		}
+		/* otherwise we're going to do another parallel redund run,
+		 * checking the weakly redundant lines with the hidden
+		 * linearities now explicit.
+		 *
+		 * let's hide the number of linearities in the same
+		 * hidden place as lrs, to help add_redund_jobs later...
+		 */
+		if (mplrs.nohiddenl)
+			printf("warning: lrs said no hidden linearities but we found some - likely to break\n");
+		mplrs.R->count[6] = n_newlin;
+
+		mprintf(("M: minrep mode, ready for final parallel run\n"));
+		mprintf2(("M: adding second round redund jobs on:"));
+		for (i=0; i<=m; i++)
+		{
+			mplrs.R->redineq[i] = master.redineq[i];
+			if (master.redineq[i] == 1)
+			{
+				rcount++;
+				mprintf2((" %ld", i));
+			}
+		}
+		mprintf2(("\n"));
+		add_redund_jobs(rcount, m);
+	}
+
+	return;
+}
+
 /* send one unit from L to target.  if phase!=0, this is the first
  * unit we're sending (i.e. phase 1).  usually, phase==0.
+ * get_newlin=1: tell worker to send current redineq, doesn't send other work
+ * get_newlin=2: send master.redineq to the worker
+ * get_newlin=0: normal case as in previous versions
  * Parameters are scaled and sent in the header.
  */
-void send_work(int target, int phase)
+void send_work(int target, int phase, int get_newlin)
 {
 	slist *cob;
 	msgbuf *msg = malloc(sizeof(msgbuf));
@@ -1262,18 +1598,43 @@ void send_work(int target, int phase)
 	msg->buf = malloc(sizeof(void *)*2);
 	/*{length of work, int maxdepth, int maxcobases, bool lponly,
 	   bool messages, int type, 2x future use} */
-	/* type: 0 normal, 1 redund (in future: 2 fel?) */
-	msg->buf[0] = malloc(sizeof(int) * 8);
+	/* type: 0 normal, 1 redund, 2 fel,
+	 * 3 report current redineq (to get new linearities, minrep mode)
+	 * 4 receive master's redineq and merge (new linearities)
+	 */
+	msg->buf[0] = calloc(8, sizeof(int)); /*warning removal - all init now*/
 	header = (int *)msg->buf[0];
 
 	header[4] = master.messages;
 	header[5] = 0;
 	master.messages = 0;
 
-	if (master.redund || master.fel)
+	if (get_newlin==1) /* after first parallel round in minrep mode,
+			 * we need to check for the new linearities,
+			 * merging them all on the master. then we redo
+			 * a parallel redund run on the weakly redundant
+			 * lines
+			 */
+	{
+		header[4] = 0;
+		header[5] = 3; /* type */
+		msg->count = 1;
+	}
+	else if (get_newlin==2) /* after first parallel round in minrep mode,
+				 * we got new linearities: need to send them
+				 * around. to target for now.
+				 */
+	{
+		header[4] = 0;
+		header[5] = 4; /* type */
+		msg->count = 1;
+	}
+	else if (master.redund || master.fel)
 	{	/* should assert work unit type 1/2, or use that condition */
 		cob = master.L;
 		master.L = cob->next;
+		if (cob==master.tail_L)
+			master.tail_L = NULL;
 		jsend = (job*)cob->data;
 		header[0] = jsend->nnums;
 		setparams(header);
@@ -1328,7 +1689,7 @@ void send_work(int target, int phase)
 
 	/* ready to send */
 	MPI_Isend(header, 8, MPI_INT, target, 1, MPI_COMM_WORLD, msg->req);
-	if (phase==0 || master.redund || master.fel)
+	if ( (phase==0 || master.redund || master.fel) && !get_newlin)
 		MPI_Isend(msg->buf[1], header[0], type, target, 1,
 			  MPI_COMM_WORLD, msg->req+1);
 	master_add_incoming(target); /* prepare to receive remaining cobases */
@@ -1431,7 +1792,7 @@ void master_checksigs(void)
 		MPI_Test(master.sigcheck+i, &flag, MPI_STATUS_IGNORE);
 		if (flag)
 			MPI_Irecv(master.sigbuf+i, 1, MPI_FLOAT, i, 9, MPI_COMM_WORLD,
-                          master.sigcheck+i);
+			  master.sigcheck+i);
 		if (flag && master.sigbuf[i]==0 && !already_stopping)
 		{
 			mprintf(("M: %d caught signal, checkpointing!\n",i));
@@ -1756,13 +2117,26 @@ int mplrs_worker(void)
 		MPI_Recv(header, 8, MPI_INT, MASTER, MPI_ANY_TAG,
 			 	 MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 		mprintf2(("%d: Message received from master\n",mplrs.rank));
+		len = header[0]; 
 
-		len = header[0];	
-
-		if (len==-1) /* no more work to do */
+		if (len == -1) /* no more work to do */
 			return mplrs_worker_finished();
 
-		if (header[5] == 0 && len>0)
+		if (header[5] == 3) /* minrep mode - master wants our redineq */
+		{		    /* to get all new linearities, will then */
+			send_redineq(mplrs.redineq, MASTER);
+				  /* schedule new parallel run */
+				  /* sent so wait for master to tell us what */
+			memset(mplrs.R->redineq,0, (mplrs.R->m+1)*sizeof(long));
+		}		  /* to do next */
+		else if (header[5] == 4) /* minrep mode - get new redineq */
+		{
+			get_redineq(MASTER);
+			mplrs.minrep_nonfinal = 0; /* now in final run */
+		}
+
+
+		else if (header[5] == 0 && len>0)
 		{
 			starting_cobasis = malloc(sizeof(char)*(len+1));
 			MPI_Recv(starting_cobasis, len, MPI_CHAR, MASTER,
@@ -1777,9 +2151,13 @@ int mplrs_worker(void)
 		}
 		mplrs.outputblock = 0; /* enable maxbuf-based flushing */
 		/* do work */
-		do_work(header, nums, starting_cobasis);
+		if (header[5]!=3 && header[5]!=4)
+			do_work(header, nums, starting_cobasis);
 		free(starting_cobasis);
 		free(nums);
+		starting_cobasis=NULL;
+		nums=NULL; /* only needed for minrep runs, where we use nums
+			    * then free, then in round 1 free again */
 		if (mplrs.redund)
 			mplrs_worker_send_redineq();
 		/* send output and unfinished cobases */
@@ -1815,6 +2193,8 @@ void run_lrs(int argc, char **argv, long o, long stage,
 	if (ret == 1 || (ret==2 && mplrs.redund))
 	{
 		mplrs.overflow = 3;
+		mplrs.lrs_main(argc, argv, &mplrs.P, &mplrs.Q, o, 2, NULL,
+			       mplrs.R);
 		worker_report_overflow();
 	}
 	return;
@@ -1827,6 +2207,9 @@ void run_lrs(int argc, char **argv, long o, long stage,
 			  mplrs.rank, ret, mplrs.overflow));
 		if (ret == 0) /* done */
 			break;
+
+		mplrs.lrs_main(argc, argv, &mplrs.P, &mplrs.Q, o, 2, NULL,
+			       mplrs.R);
 
 		if (stage!=0)
 			overflow_cleanup();
@@ -1866,9 +2249,16 @@ void mplrs_worker_init(void)
 	char *argv[] = {argv0, mplrs.tfn};
 	long o = 1;
 
-	if ((mplrs.rank == MASTER && master.redund) || (mplrs.rank == CONSUMER && mplrs.redund))
-		argv[0] = "redund"; /* hack for -redund */
-
+	if ((mplrs.rank == MASTER && master.cfel) ||
+            (mplrs.rank == CONSUMER && mplrs.fel && !consumer.felfallback) ||
+	    (mplrs.rank!=MASTER && mplrs.rank!=CONSUMER && mplrs.fel &&
+             mplrs.nohiddenl))
+		argv[0] = "fel"; /* hack for -fel */
+	if ((mplrs.rank == MASTER && (master.redund || master.minrep)) || 
+            (mplrs.rank == CONSUMER && mplrs.redund && (!mplrs.fel || consumer.felfallback)) ||
+	    (mplrs.rank!=MASTER && mplrs.rank!=CONSUMER && mplrs.redund && (!mplrs.fel || !mplrs.nohiddenl)))
+		argv[0] = "minrep"; /* hack for -minrep */
+	mprintf3(("%d: mplrs.fel=%d, mplrs.nohiddenl=%d, mplrs.redund=%d consumer.felfallback=%d, my argv[0] is %s\n", mplrs.rank, mplrs.fel, mplrs.nohiddenl, mplrs.redund, consumer.felfallback, argv[0]));
 	if (mplrs.R != NULL)
 	{  /* overflow happened, free and re-init */
 		free(mplrs.R->redineq);
@@ -1879,6 +2269,7 @@ void mplrs_worker_init(void)
 	mplrs.R = lrs_alloc_restart();
 	mplrs.R->size = mplrs.size;
 	mplrs.R->rank = mplrs.rank;
+	mplrs.R->testlin = 0; /*default. must always inititialize to something*/
 
 	mprintf2(("%d: calling lrs_main to setup P & Q\n", mplrs.rank));
 
@@ -1889,20 +2280,27 @@ void mplrs_worker_init(void)
 /* note we must be careful about returns below in order to fix this
  * up on MASTER and INITIAL
  */
-        if(mplrs.rank == MASTER)
-           mplrs.R->messages=1;
-        else
-           mplrs.R->messages=0;
+	if(mplrs.rank == MASTER)
+	   mplrs.R->messages=master.m_messages;
+	else
+	   mplrs.R->messages=0;
 
-	if (mplrs.rank != MASTER)
-	{
-		mplrs.tfile = fopen(mplrs.tfn, "w");
-		fprintf(mplrs.tfile, "%s", mplrs.input);
-		fclose(mplrs.tfile);
-	}
+	mplrs.tfile = fopen(mplrs.tfn, "w");
+	fprintf(mplrs.tfile, "%s", mplrs.input);
+	fclose(mplrs.tfile);
 
 	while (o != 0)
 	{
+		if (mplrs.specialmode == 2) /* setting up fel, looking for */
+		{
+			mplrs.R->testlin=1; /* hidden linearities. need    */
+			mplrs.R->fel=1;     /* testlin and fel on */
+		}
+		else if (mplrs.specialmode == 3) /* fel phase 1, only fel on */
+		{
+			mplrs.R->testlin=0;
+			mplrs.R->fel=1;
+		}
 		o = mplrs.lrs_main(2,argv,&mplrs.P,&mplrs.Q,0,0,NULL,mplrs.R);
 		if (o == -1)
 		{
@@ -1913,6 +2311,7 @@ void mplrs_worker_init(void)
 		}
 		if (o == 1)
 		{
+			mplrs.lrs_main(2,argv,&mplrs.P,&mplrs.Q,0,2,NULL,mplrs.R);
 #ifdef MA
 			mprintf2(("%d: overflow in init, trying next arithmetic\n", mplrs.rank));
 			overflow_cleanup(); /* 2020.6.1 : avoid multiple
@@ -1943,8 +2342,7 @@ void mplrs_worker_init(void)
 			
 	mprintf3(("%d: lrs_main setup finished (%ld)\n", mplrs.rank, o));
 	mplrs.R->facet = calloc(mplrs.R->d+1, sizeof(long));
-	if (mplrs.rank != MASTER)
-		remove(mplrs.tfn);
+	remove(mplrs.tfn);
 	mplrs.R->overide = 1;
 	if (mplrs.rank == CONSUMER && mplrs.fel)
 	{
@@ -1953,9 +2351,49 @@ void mplrs_worker_init(void)
 		 * dimension the master told us
 		 */
 		free(mplrs.R->redineq);
-		mplrs.R->redineq = calloc(consumer.m+1, sizeof(long));
+		/* add 1 extra since lrs seems to use it sometimes ... */
+		mplrs.R->redineq = calloc(consumer.m+2, sizeof(long));
 	}
+	if (mplrs.specialmode == 1) /* we're in master minrep/felmode,
+				     * checking if there are hidden linearities.
+				     * so we want testlin ON, redund OFF
+				     * regardless of what the input file says.
+				     */
+	{
+		mplrs.R->testlin = 1;
+		mplrs.R->redund = 0;
+		mplrs.R->fel = 0;
+	}
+	if (mplrs.nohiddenl != -1) /*we know whether there's an interior point*/
+		mplrs.R->redundphase = mplrs.nohiddenl;
+		/* so tell lrs (redund/minrep/felmode) */
 	process_curwarn();
+}
+
+/* receive redineq from target - matches send_redineq and also the master's
+ * version that sends the merged version from master.redineq
+ */
+void get_redineq(int target)
+{
+	mprintf2(("%d: getting redineq from %d\n", mplrs.rank, target));
+	if (mplrs.redineq == NULL) /* shouldn't happen */
+		mplrs.redineq = malloc(sizeof(long)* (mplrs.R->m+1));
+	MPI_Recv(mplrs.redineq, mplrs.R->m+1, MPI_LONG, target, 6,
+		 MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+	return;
+}
+
+/* Send our mplrs.R->redineq[i] to the specified recipient.
+ * Sends directly as longs, eventually mplrs_worker_send_redineq() should
+ * just use this
+ */
+void send_redineq(long *redineq, int target)
+{
+	long m = mplrs.R->m;
+	mprintf3(("%d: sending redineq(m=%ld) to %d\n", mplrs.rank, m, target));
+	MPI_Send(redineq, m+1, MPI_LONG, target,
+		 6, MPI_COMM_WORLD);
+	return;
 }
 
 /* Send this worker's redineq to the consumer.
@@ -1968,28 +2406,41 @@ void mplrs_worker_send_redineq(void)
 	int i, m = mplrs.R->m, len=0;
 	char *tmp;
 
-	if (mplrs.fel)
-		m = mplrs.R->m;
-
 	tmp = malloc(sizeof(char)*snprintf(NULL, 0, " %d -%d ", m, m));
 
 	redund_string[0] = '\0';
 
+	mprintf2(("%d (nonfinal=%d): got redineq array ",mplrs.rank,mplrs.minrep_nonfinal));
 	for (i=1; i<=m; i++)
 	{
+		mprintf2((" %ld",mplrs.R->redineq[i]));
 		if (mplrs.R->redineq[i] != 0)
 		{
+			if (mplrs.redineq!=NULL && mplrs.minrep_nonfinal)
+			{
+				/* save to send the master later */
+				if (mplrs.redineq[i]!=-1)
+					mplrs.redineq[i]=mplrs.R->redineq[i];
+			}
+			/* don't send weakly redundant to consumer in the
+			 * first round of a minrep run with hidden linearities-
+			 * send them the second time
+			 */
+			/* could just not send anything the first round */
+			if (mplrs.R->redineq[i] == 1 && mplrs.minrep_nonfinal)
+				continue;
 			/* quick hack, send linearities as -2 */
 			/* avoids confusing consumer re 1s sent from proc 2 */
 			if (mplrs.R->redineq[i] == 2)
 				mplrs.R->redineq[i] = -2;
 			sprintf(tmp, " %d %ld", i, mplrs.R->redineq[i]);
-			mprintf3(("%d: adding %s to %s\n", mplrs.rank, tmp,
-				 redund_string));
+			/*mprintf3(("%d: adding %s to %s\n", mplrs.rank, tmp,
+				 redund_string));*/
 			redund_string = append_out(redund_string, &len,
 						   tmp);
 		}
 	}
+	mprintf2(("\n"));
 
 	if (len>0)
 	{
@@ -2019,7 +2470,6 @@ int mplrs_worker_finished(void)
 	send_counting_stats(CONSUMER);
 
 	/* free P & Q */
-	/* overflows free themselves in lrslib?  abortinit didn't allocate */
 	if (mplrs.overflow != 3 && !mplrs.abortinit)
 	{
 		mplrs.lrs_main(0,NULL,&mplrs.P,&mplrs.Q,0,2,NULL,mplrs.R);
@@ -2035,6 +2485,7 @@ int mplrs_worker_finished(void)
 	mplrs_freemps();
 	free(mplrs.finalwarn);
 	free(mplrs.curwarn);
+	free(mplrs.redineq);
 	MPI_Finalize();
 	return 0;
 }	
@@ -2077,9 +2528,9 @@ void overflow_cleanup(void)
 	mplrs.outputblock = 0;
 
 	/* discard output */
-        mplrs.outnum = 0; /* clearing buffer */
-        mplrs.output_list = NULL;
-        mplrs.ol_tail = NULL;
+	mplrs.outnum = 0; /* clearing buffer */
+	mplrs.output_list = NULL;
+	mplrs.ol_tail = NULL;
 	for (; out; out=next)
 	{
 		next = out->next;
@@ -2110,6 +2561,12 @@ void overflow_cleanup(void)
  * if header[5]==1, then use nums to re-init redineq, header[0] size of nums
  * if header[5]==2, use nums to fake (rank,size) for fel (likely to change)
  * if header[5]==1 or 2, negative indices in nums are linearities, set to 2
+ *
+ * if mplrs.redineq!=NULL and mplrs.minrep_nonfinal==0, then we're in minrep
+ * mode round 2, and need to copy linearities from mplrs.redineq
+ * (master's version)
+ * to mplrs.R->redineq since we may have found hidden linearities that
+ * are needed in round 2.
  */
 void set_restart(const int *header, long *nums, char *starting_cobasis)
 {
@@ -2127,6 +2584,21 @@ void set_restart(const int *header, long *nums, char *starting_cobasis)
 		R->count[i] = 0;
 	R->messages = header[4];
 
+	if (!mplrs.minrep_nonfinal && mplrs.redineq != NULL) /* see comment about minrep mode above */
+	{
+		for (i=0; i<=R->m; i++)
+			if (mplrs.redineq[i]==2)
+				mplrs.R->redineq[i] = mplrs.redineq[i];
+
+		/* second round, no more hidden linearities */
+		mplrs.R->testlin = 0;
+		mplrs.R->redundphase = 1;
+	}
+	else if (mplrs.minrep_nonfinal) /* may have hidden linearities */
+	{ /* should already be set? */
+		mplrs.R->redund = mplrs.R->testlin = 1;
+		mplrs.R->redundphase = 0;
+	}
 	if (header[5] == 1 || header[5] == 2) /* redund or fel run */
 	{
 		mplrs.R->overide = 1;
@@ -2242,9 +2714,14 @@ void update_counts(void)
 void do_work(const int *header, long *nums, char *starting_cobasis)
 {
 	char *argv[] = {argv0, mplrs.tfn};
-
 	mprintf3(("%d: Received work (%d,%d,%d)\n",mplrs.rank,header[0],
 						   header[1],header[2]));
+
+	if (mplrs.testlin && mplrs.redund)
+	{ /* not needed for first stage 1 run, but later ones need new P,Q*/
+		mplrs.lrs_main(0,NULL,&mplrs.P,&mplrs.Q,0,2,NULL,mplrs.R);
+		mplrs_worker_init();
+	}
 	set_restart(header, nums, starting_cobasis);
 	mprintf2(("%d: Calling run_lrs\n",mplrs.rank));
 	run_lrs(2, argv, 0, 1, header, nums, starting_cobasis);
@@ -2330,9 +2807,13 @@ void process_output(void)
 		}
 		else if (!strcmp(type, "warning"))
 		{ /* warnings always go to output file and stderr if output is not stdout */
-                        out_string = append_out(out_string, &len, data);
-                        if(consumer.output != stdout)
+			out_string = append_out(out_string, &len, data);
+			if(consumer.output != stdout)
 			   serr_string = append_out(serr_string, &len2, data);
+		}
+		else if (!strcmp(type, "flush"))
+		{
+			out_string = append_out(out_string, &len, data);
 		}
 		else if (!strcmp(type, "finalwarn"))
 		{ /* these are printed at end of run */
@@ -2731,8 +3212,8 @@ int mplrs_consumer(void)
 	consumer.num_producers = mplrs.size - 2;
 	consumer.overflow = malloc(sizeof(int)*mplrs.size);
 
-	if (mplrs.redund || mplrs.fel) /* don't wait for a begin when
-					* doing redund or fel */
+	if (mplrs.redund || mplrs.fel || mplrs.testlin) /* don't wait for a
+					* begin in these modes */
 		consumer.waiting_initial = 0;
 
 	for (i=0; i<mplrs.size; i++)
@@ -2808,7 +3289,7 @@ int mplrs_consumer(void)
 
 /* check if anyone is trying to send us their output */
 /* if master is trying, probably means we're going to checkpoint */
-/* in any case, queue any incoming messages          */
+/* in any case, queue any incoming messages	  */
 void consumer_start_incoming(void)
 {
 	int i;
@@ -2838,7 +3319,7 @@ void consumer_start_incoming(void)
 			mprintf(("C: Restarted\n"));
 			/* master may restart and later checkpoint */
 			MPI_Irecv(consumer.prodibf+(i*7), 7, MPI_INT, i, 7,
-                          	  MPI_COMM_WORLD, consumer.prodreq+i);
+			  	  MPI_COMM_WORLD, consumer.prodreq+i);
 			continue;
 		}
 		
@@ -2905,7 +3386,7 @@ void consumer_process_redund(const char *rstring)
 	const char *start=rstring;
 	char *endptr=NULL;
 	long index, value;
-	int i=0;
+	/* int i=0; */
 
 	mprintf3(("C: processing redund_string %s\n", rstring));
 	do {
@@ -2916,7 +3397,7 @@ void consumer_process_redund(const char *rstring)
 			value = strtol(start, &endptr, 10);
 			mprintf3(("C: got redundant inequality %ld %ld\n",
 				  index, value));
-			i++;
+			/* i++; */
 			if (value == 1)
 				consumer.redineq[index] = consumer.rjobcount;
 			else
@@ -2924,8 +3405,10 @@ void consumer_process_redund(const char *rstring)
 			start = endptr;
 		}
 	} while (index!=0);
+/*
 	mprintf2(("C: got %d redundant inequalities tagged %llu\n", i,
 		  consumer.rjobcount));
+*/
 	consumer.rjobcount++;
 }
 
@@ -3213,7 +3696,7 @@ void send_counting_stats(int target)
 {
 	char *vol = cprat("", mplrs.Vnum, mplrs.Vden);
 	unsigned long long stats[11] = {mplrs.rays, mplrs.vertices, mplrs.bases,
-			          mplrs.facets, mplrs.intvertices,
+				  mplrs.facets, mplrs.intvertices,
 				  strlen(vol)+1, mplrs.deepest, mplrs.overflow,
 				  mplrs.linearities, strlen(mplrs.finalwarn)+1,
 				  mplrs.deepest_vertex};
@@ -3268,27 +3751,46 @@ void recv_counting_stats(int target)
 	return;
 }
 
+/* print who we are */
+void id_print(FILE *f)
+{
+	fprintf(f, "*mplrs:%s%s(", TITLE, VERSION);
+#ifdef B128
+	fprintf(f, "128bit");
+#else
+	fprintf(f, "64bit");
+#endif
+#ifdef MA
+	fprintf(f, ",hybrid arithmetic");
+#endif
+#ifdef GMP
+#ifdef MGMP
+	fprintf(f, ",mini-gmp");
+#else
+	fprintf(f, ",gmp v.%d.%d",__GNU_MP_VERSION,__GNU_MP_VERSION_MINOR);
+#endif
+#endif
+#ifdef MP
+	fprintf(f, ",lrsmp");
+#endif
+#ifdef FLINT
+	fprintf(f, ",%dbit flint v.%s",FLINT_BITS,FLINT_VERSION);
+#endif
+#ifndef MA
+#ifdef SAFE
+	fprintf(f, ",overflow checking");
+#else
+	fprintf(f, ",no overflow checking");
+#endif
+#endif
+	fprintf(f, ")%d processes\n", mplrs.size);
+}
+
 /* do the initial print */
 void init_print(FILE *f)
 {
-#ifdef MA
-	fprintf(f, "*mplrs:%s%s(hybrid arithmetic)%d processes\n",
-		TITLE, VERSION, mplrs.size);
-#elif defined(GMP)
-	fprintf(f, "*mplrs:%s%s(%s gmp v.%d.%d)%d processes\n",
-		TITLE,VERSION,ARITH,__GNU_MP_VERSION,
-		__GNU_MP_VERSION_MINOR,mplrs.size);
-#elif defined(FLINT)
-	fprintf(f, "*mplrs:%s%s(%s, %dbit flint v.%s)%d processes\n",
-		TITLE,VERSION,ARITH,FLINT_BITS,FLINT_VERSION,
-		mplrs.size);
-#elif defined(SAFE)
-	fprintf(f, "*mplrs:%s%s(%s,%s,overflow checking)%d processes\n",
-		TITLE,VERSION,BIT,ARITH,mplrs.size);
-#else
-	fprintf(f, "*mplrs:%s%s(%s,%s,no overflow checking)%d processes\n",
-		TITLE,VERSION,BIT,ARITH,mplrs.size);
-#endif
+	id_print(f);
+
 	fprintf(f, "*Input taken from %s\n",
 		mplrs.input_filename);
 	if (f == stdout && consumer.output!=stdout)
@@ -3307,7 +3809,7 @@ void init_print(FILE *f)
 		fprintf(f, "*rows=%u lastp=%u lastrows=%u j=%u\n", master.rows,
 			master.lastp, master.lastrows, master.j);
 	if (mplrs.redund && !mplrs.fel)
-		fprintf(f, "*redund\n");
+		fprintf(f, "*minrep\n");
 }
 
 void initial_print(void)
@@ -3353,8 +3855,15 @@ void consumer_setredineq(void)
 	 * inequalities and not recheck those at the end
 	 */
 	for (i=1; i<=m; i++)
+	{
+		if (mplrs.testlin || mplrs.nohiddenl)
+		{   /* we track which job produced the item - any positive number was a 1 */
+			if (consumer.redineq[i]>0) /* so reset those to definitely redundant here */
+				consumer.redineq[i] = -1;
+		}
 		if (consumer.redineq[i]>0)
 			counts[consumer.redineq[i]]++;
+	}
 	max = -1;
 	maxi = -1; /* for warning removal only */
 	for (i=0; i<consumer.rjobcount; i++)
@@ -3388,7 +3897,6 @@ void consumer_setredineq(void)
 				 consumer.redineq[i]));
 	}
 	mprintf(("\n"));
-	mplrs.R->verifyredund = 1;
 }
 
 /* do the final print */
@@ -3400,7 +3908,6 @@ void final_print(void)
 #ifdef MA
 	int i, num64=0, num128=0, numgmp=0;
 #endif
-
 	if (mplrs.redund)
 	{
 		mplrs_worker_init();
@@ -3415,19 +3922,31 @@ void final_print(void)
 		if (mplrs.overflow != 3)
 			mplrs.lrs_main(0,NULL,&mplrs.P,&mplrs.Q,0,2,NULL,mplrs.R);
 	}
-
-	else
+	else  if (!mplrs.testlin)
 		fprintf(consumer.output, "end\n");
-
 	if (strlen(mplrs.finalwarn)>1) /*avoid spurious newline from append_out*/
 		fprintf(consumer.output, "%s", mplrs.finalwarn);
+
+	if (consumer.felfallback) /* was a fel run, but hidden linearities so
+				   * did minrep instead. tell the user to avoid
+				   * confusion.
+				   */
+	{
+		fprintf(consumer.output, "*Input had hidden linearities so a minimum representation was output\n");
+		fprintf(consumer.output, "*Rerun with this file to do projections\n");
+		if (consumer.output_filename != NULL)
+		{
+			printf("*Input had hidden linearities so a minimum representation was output\n");
+			printf("*Rerun with this file to do projections\n");
+		}
+	}
 
 	/* after the (expensive) final redund check */
 	gettimeofday(&end, NULL);
 
-	fprintf(consumer.output, "*Total number of jobs: %lu, L became empty %lu times, tree depth %llu, deepest vertex depth %llu\n", master.tot_L, master.num_empty,mplrs.deepest,mplrs.deepest_vertex);
+	fprintf(consumer.output, "\n*Total number of jobs: %lu, L became empty %lu times, tree depth %llu, deepest output depth %llu\n", master.tot_L, master.num_empty,mplrs.deepest,mplrs.deepest_vertex);
 	if (consumer.output_filename != NULL)
-		printf("*Total number of jobs: %lu, L became empty %lu times, tree depth %llu, deepest vertex depth %llu\n",
+		printf("\n*Total number of jobs: %lu, L became empty %lu times, tree depth %llu, deepest vertex depth %llu\n",
 			master.tot_L, master.num_empty,mplrs.deepest, mplrs.deepest_vertex);
 #ifdef MA
 	for (i=0; i<mplrs.size; i++)
@@ -3443,27 +3962,26 @@ void final_print(void)
 	}
 #ifdef B128
 	fprintf(consumer.output, "*Finished with %d 64-bit, %d 128-bit, %d GMP workers\n",
-                num64, num128, numgmp);
+		num64, num128, numgmp);
 	if (consumer.output_filename != NULL)
 		printf("*Finished with %d 64-bit, %d 128-bit, %d GMP workers\n",
 		       num64, num128, numgmp);
 #else
 	fprintf(consumer.output, "*Finished with %d 64-bit, %d GMP workers\n",
-		num64, num128);
+		num64, numgmp);
 	if (consumer.output_filename != NULL)
 		printf("*Finished with %d 64-bit, %d GMP workers\n",
-			num64, num128); /*DA since no 128 bit support,
-					  num128 counts gmp */
+			num64, numgmp); 
 #endif
 #endif
 	if (mplrs.facets>0)
 	{
-                if(!zero(mplrs.Vnum))
-                  {
+		if(!zero(mplrs.Vnum))
+		  {
 		   vol = cprat("*Volume=",mplrs.Vnum,mplrs.Vden);
 		   fprintf(consumer.output,"%s\n",vol);
 		   free(vol);
-                  }
+		  }
 		fprintf(consumer.output,"*Totals: facets=%llu bases=%llu",
 			mplrs.facets, mplrs.bases);
 		if (mplrs.linearities > 0)
@@ -3491,6 +4009,7 @@ void final_print(void)
 		}
 		fputc('\n', consumer.output);
 	}
+	id_print(consumer.output);
 	fprintf(consumer.output, "*Elapsed time: %ld seconds.\n",
 		end.tv_sec - mplrs.start.tv_sec);
 
@@ -3528,7 +4047,67 @@ void final_print(void)
 		}
 		putchar('\n');
 	}
+	id_print(stdout);
 	printf("*Elapsed time: %ld seconds.\n", end.tv_sec - mplrs.start.tv_sec);
+}
+
+/* create a new string version of the input (which is length length),
+ * add "testlin" option before begin.
+ * note: lrs is happy with input, so it has a begin line, etc.
+ */
+char *add_testlin_option(char *input, int length)
+{
+	long i, j, line=0;
+	char *ret = malloc(sizeof(char)*(length+9));
+
+	for (i=0,j=0; i<length; )
+	{
+		if (line==0)
+		{
+			do {
+				ret[j++] = input[i];
+			} while (input[i++]!='\n');
+			line=1;
+			continue;
+		}
+
+		if (!strncmp(input+i,"begin",5))
+		{
+			sprintf(ret+j, "testlin\nb");
+			j+=9;
+			i++;
+			continue;
+		}
+
+		ret[j++] = input[i++];
+	}
+
+	ret[j] = '\0';
+
+	mprintf3(("added testlin to file as follows: %s\n", ret));
+
+	return ret;
+}
+
+/* input is an lrs input file, length n, option is a string.
+ * any occurence of "option" after the first line is replaced by
+ * "*ption"
+ */
+void remove_option(char *input, long n, const char *option)
+{
+	long i, line = 0, len=strlen(option);
+
+	for (i=0; i<n; i++)
+	{
+		if (line==0) /* ignore first line */
+		{
+			if (input[i]=='\n')
+				line=1;
+			continue;
+		}
+		if (!strncmp(input+i, option, len))
+			input[i]='*';
+	}		
 }
 
 void open_outputblock(void)
@@ -3541,7 +4120,7 @@ void close_outputblock(void)
 	mplrs.outputblock--;
 	if (okay_to_flush())
 	{
-		process_output();          /* before starting a flush */
+		process_output();	  /* before starting a flush */
 		clean_outgoing_buffers();
 	}
 }
@@ -3575,6 +4154,36 @@ int okay_to_flush(void)
 	 */
 }
 
+void mplrs_init_tfn(char *tim1)
+{
+	int i,j;
+	char c;
+	j = mplrs.size;
+	for (i=1; j>9; i++)
+		j = j/10;
+	i += 6+strlen(tim1); /* mplrs_TIMESTAMP */
+	i += strlen(mplrs.tfn_prefix) + strlen(mplrs.input_filename) +
+	     i + 6; /* _%d.ine\0 */
+	mplrs.tfn = malloc(sizeof(char) * i);
+	sprintf(mplrs.tfn, "%smplrs_%s%s_%d.ine",
+					  mplrs.tfn_prefix, tim1,
+					  mplrs.input_filename,
+					  mplrs.rank);
+	/* flatten directory structure in mplrs.input_filename
+	 * for mplrs.tfn, to prevent writing to non-existent
+	 * subdirectories in e.g. /tmp
+	 */
+	i = strlen(mplrs.tfn_prefix) + 6 + strlen(tim1);
+	j = strlen(mplrs.tfn);
+	for (; i<j; i++)
+	{ 
+		c = mplrs.tfn[i];
+		if (c == '/' || c == '\\')
+			mplrs.tfn[i] = '_';
+	}       
+	return;
+}
+
 void post_output(const char *type, const char *data)
 {
 	outlist *out;
@@ -3588,7 +4197,8 @@ void post_output(const char *type, const char *data)
 	else
 		mplrs.ol_tail->next = out;
 	mplrs.ol_tail = out;
-	if (okay_to_flush() && data[strlen(data)-1]=='\n')
+	if ((okay_to_flush() && data[strlen(data)-1]=='\n') ||
+	    !strcmp(type,"flush")) /* "flush" flushes always, no matter what*/
 	{
 		process_output();	   /* before starting a flush */
 		clean_outgoing_buffers();

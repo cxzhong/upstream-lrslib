@@ -5,12 +5,12 @@
 # projection should be given in the ine file. Tests each of the
 # inequalities specified by a redund or redund_list option
 #
-# requires: checkpred, inedel, z3 or cvc4 in path
+# requires: polyv, inedel, z3 or cvc4 in path
 # uses temporary files in current directory - be careful with multiple
 # runs
 #
 
-CHECKPRED=checkpred
+CHECKPRED=polyv
 INEDEL=inedel
 
 if [ $# -lt 1 ] || [ $# -gt 4 ]; then

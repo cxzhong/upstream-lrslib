@@ -29,13 +29,13 @@
 			 //forked threads
 			// n= sprintf(buffer, "lrs %s > out%i", argv[l], l);
                          if(l==1) {
-                              int n= sprintf(buffer, "lrsnash %s %s > out%i", argv[1], argv[2], l);
+                               sprintf(buffer, "lrsnash %s %s > out%i", argv[1], argv[2], l);
                          }
                          else     {
-                              int n= sprintf(buffer, "lrsnash %s %s > out%i", argv[2], argv[1], l);
+                               sprintf(buffer, "lrsnash %s %s > out%i", argv[2], argv[1], l);
                          }
 
-			 int i=system(buffer);
+			  system(buffer);
                           _exit(0);
 		      }
 		  }
@@ -52,16 +52,16 @@
                                }
                            if(argc == 4) {
 			       printf("output file: %s\n", argv[3]);
-			       int n = sprintf(buffer, "/bin/mv -f out%i %s", j, argv[3]);
+			       sprintf(buffer, "/bin/mv -f out%i %s", j, argv[3]);
                            }
                            else  {
 			        printf("output file: out\n");
-			        int n = sprintf(buffer, "/bin/mv -f out%i out", j);
+			        sprintf(buffer, "/bin/mv -f out%i out", j);
                            }
-			  int i = system(buffer);
+			 system(buffer);
 		      } else {
-			  int n = sprintf(buffer, "/bin/rm -f out%i", j);
-			  int i = system(buffer);
+			  sprintf(buffer, "/bin/rm -f out%i", j);
+			  system(buffer);
 		      }
 		  }
 		  printf("the other process will be ");   /*...will be killed */

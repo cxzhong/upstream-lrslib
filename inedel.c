@@ -199,7 +199,7 @@ int main(int argc, char **argv)
 	if (ineq > m)
 		parse_error("can't remove non-existent inequality");
 	fgets(str, 4000, f);
-	for (i=0; isspace((int)str[i]); i++);
+	for (i=0; isspace(str[i]); i++);
 
 	if (strncmp(str+i, "integer", 7)==0)
 		printf("%u %u integer\n", m-1, n);

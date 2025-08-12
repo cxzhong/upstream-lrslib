@@ -1,7 +1,7 @@
 /* lrslib.h (vertex enumeration using lexicographic reverse search) */
 #define TITLE "lrslib_"
-#define VERSION "v.7.2_2022.3.6"
-#define AUTHOR "*Copyright (C) 1995,2022, David Avis   avis@cs.mcgill.ca "
+#define VERSION "v.7.3_2024.5.30"
+#define AUTHOR "*Copyright (C) 1995,2024, David Avis   avis@cs.mcgill.ca "
 
 /* This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -26,12 +26,12 @@
 /******************************************************************************/
 
 #define lrs_main suf(lrs_main)
+#define plrs_run suf(plrs_run)
 #define lrsv2_main suf(lrsv2_main)
 #define lrs_run suf(lrs_run)
 #define redund_run suf(redund_run)
 #define redund_print suf(redund_print)
-#define lrs_overflow suf(lrs_overflow)
-#define lrsv2_overflow suf(lrsv2_overflow)
+#define remove_artificial suf(remove_artificial)
 #define lrslong_overflow suf(lrslong_overflow)
 #define cache_misses suf(cache_misses)
 #define cache_tries suf(cache_tries)
@@ -39,10 +39,13 @@
 #define checkindex suf(checkindex)
 #define checkpoint suf(checkpoint)
 #define checkredund suf(checkredund)
+#define cleanupA suf(cleanupA)
 #define compute_redundancy suf(compute_redundancy)
 #define copy_dict suf(copy_dict)
 #define copydicA suf(copydicA)
 #define copy_linearity suf(copy_linearity)
+#define copy_Q suf(copy_Q)
+#define copy2_Q suf(copy2_Q)
 #define dan_selectpivot suf(dan_selectpivot)
 #define ran_selectpivot suf(ran_selectpivot)
 #define dict_count suf(dict_count)
@@ -75,7 +78,6 @@
 #define lrs_compute_groups suf(lrs_compute_groups)
 #define lrs_next_col suf(lrs_next_col)
 #define lrs_degenerate suf(lrs_degenerate)
-#define lrs_dump_state suf(lrs_dump_state)
 #define lrs_estimate suf(lrs_estimate)
 #define lrs_exit suf(lrs_exit)
 #define lrs_project_var suf(lrs_project_var)
@@ -119,6 +121,7 @@
 #define lrs_solvelp suf(lrs_solvelp)
 #define lrs_solve_lp suf(lrs_solve_lp)
 #define lrs_warning suf(lrs_warning)
+#define lrsv2_overflow suf(lrsv2_overflow)
 #define makecopy suf(makecopy)
 #define makdedat suf(makedat)
 #define outfilename suf(outfilename)
@@ -130,6 +133,7 @@
 #define primalfeasible suf(primalfeasible)
 #define printA suf(printA)
 #define print_basis suf(print_basis)
+#define prawA suf(prawA)
 #define put_linearities_first suf(put_linearities_first)
 #define readfacets suf(readfacets)
 #define readvars suf(readvars)
@@ -176,7 +180,8 @@
 /*********************/
 /*global constants   */
 /*********************/
-#define MAX_LRS_GLOBALS 10000L  /* number of allocated dictionaries */
+#define MAX_LRS_Q 10000L    /* number of allocated dictionaries */
+#define MAX_ROWS  100000000L  /* maximum number of rows in dictionary */
 #define MAXIMIZE 1L         /* maximize the lp  */
 #define MINIMIZE 0L         /* maximize the lp  */
 #define GE 1L               /* constraint is >= */
@@ -247,6 +252,7 @@ typedef struct lrs_dat			/* global problem data   */
 	lrs_mp boundd;		/* objective bound denominator                  */
 	long unbounded;		/* lp unbounded */
 	char fname[4096];	/* program name: lrs redund fel nash            */
+        char *projmess;         /* holds project/eliminate input string         */
 
 	/* initially holds order used to find starting  */
 	/* basis, default: m,m-1,...,2,1                */
@@ -282,8 +288,8 @@ typedef struct lrs_dat			/* global problem data   */
 
 	/**** flags  **********                         */
 	long allbases;		/* TRUE if all bases should be printed          */
-	long bound;                 /* TRUE if upper/lower bound on objective given */
-	long countonly;             /* TRUE if only count totals should be output   */
+	long bound;             /* TRUE if upper/lower bound on objective given */
+	long countonly;         /* TRUE if only count totals should be output   */
 	long debug;
 	long dualdeg;		/* TRUE if start dictionary is dual degenerate  */
 	long etrace;		/* turn off debug at basis # strace             */
@@ -291,23 +297,27 @@ typedef struct lrs_dat			/* global problem data   */
 	long frequency;		/* frequency to print cobasis indices           */
 	long geometric;		/* TRUE if incident vertex prints after each ray */
 	long getvolume;		/* do volume calculation                        */
-	long givenstart;		/* TRUE if a starting cobasis is given          */
-	long giveoutput;		/* TRUE if output should be printed,used for supressing restart first output */
-	long verifyredund;      /* TRUE if mplrs consumer is verifying redund output */
-  	long noredundcheck;     /* TRUE if mplrs consumer skips verifying output     */
-	long homogeneous;		/* TRUE if all entries in column one are zero   */
-	long hull;			/* do convex hull computation if TRUE           */
-	long incidence;             /* print all tight inequalities (vertices/rays) */
+	long givenstart;	/* TRUE if a starting cobasis is given          */
+	long giveoutput;	/* TRUE if output should be printed,used for supressing restart first output */
+  	long redundphase;       /* TRUE if mplrs consumer skips verifying output     */
+  	long hiddenlin;         /* TRUE if hidden linearities exist                  */
+	long homogeneous;	/* TRUE if all entries in column one are zero   */
+	long hull;		/* do convex hull computation if TRUE           */
+	long incidence;         /* print all tight inequalities (vertices/rays) */
 	long lponly;		/* true if only lp solution wanted              */
 	long long maxdepth;	/* max depth to search to in treee              */
 	long maximize;		/* flag for LP maximization                     */
 	long maxoutput;     	/* if positive, maximum number of output lines  */
 	long maxcobases;     	/* if positive, after maxcobasis unexplored subtrees reported */
-	long messages;      	/* TRUE for normal lrs output, FALSE for PLRS and LRS_QUIET   */
+	long messages;      	/* TRUE for normal lrs output, FALSE for MPLRS and LRS_QUIET   */
 	long minimize;		/* flag for LP minimization                     */
+	long nincidence;	/* number of incidences current basis           */
+	long long maxincidence;	/* prune if incidence >= maxincidence and...    */
+	long long minprunedepth;/* ... depth >= minprunedepth                   */
 	long long mindepth;	/* do not backtrack above mindepth              */
         long fel;               /* TRUE if doing fourier elimination */
         long mplrs;             /* TRUE if compiled for mplrs                   */
+        long plrs;              /* TRUE if compiled for plrs                    */
 	long nash;              /* TRUE for computing nash equilibria           */
 	long nonnegative;       /* TRUE if last d constraints are nonnegativity */
 	long polytope;		/* TRUE for facet computation of a polytope     */
@@ -320,8 +330,16 @@ typedef struct lrs_dat			/* global problem data   */
 	long strace;		/* turn on  debug at basis # strace             */
 	long voronoi;		/* compute voronoi vertices by transformation   */
         long long subtreesize;  /* in estimate mode, iterates if cob_est >= subtreesize */
+	long testine; 		/* redund mode: find redundant inequalities     */
+	long testlin; 		/* redund mode: find lin ind set of linearities */
         long triangulation;     /* TRUE: the cobases printed triangulate the polytope */
         long newstart;          /* TRUE: lrs is restarted with new arithmetic         */
+        long fullredund;        /* TRUE: all rows checked in a minrep/redund run */
+
+        /* variables for multithreading lrs */
+        long tid;               /* thread index = 0 for single core             */ 
+        long child;
+        long threads;
 
 	/* Variables for saving/restoring cobasis,  db */
 
@@ -342,7 +360,6 @@ typedef struct lrs_dat			/* global problem data   */
 
 }lrs_dat, lrs_dat_p;
 
-
 /***************************/
 /* mplrs hooks and hacks   */
 /***************************/
@@ -351,15 +368,8 @@ void lrs_close_outputblock(void);/* re-enable mplrs output flushes */
 void lrs_return_unexplored(lrs_dic *P,lrs_dat *Q);  /* send cobasis data for unexplored nodes */
 void lrs_post_output(const char *, const char *);   /* lrs call to post_output                */
 
-#ifndef LRSLONG
-void lrs_overflow(int i);
-void lrsv2_overflow(int i);
-void lrslong_overflow(int i);
-void lrs_exit(int i);
-#endif
-
 /****************/
-/*      PLRS    */
+/*      MPLRS    */
 /****************/
 /* following provided by mplrs.c */
 void post_output(const char *, const char *);
@@ -375,9 +385,11 @@ void mplrs_emergencystop(const char *);
 /*******************************/
 
 long lrsv2_main(int argc, char *argv[],lrs_dic **P,lrs_dat **Q, long overf,long stage,char *tmp,lrs_restart_dat *R); /* called from lrsX_main where X is arithmetic type */
+long plrs_run(lrs_dic *P, lrs_dat *Q, lrs_restart_dat *R,char *tmp); /* parallel plrs loop inside lrsrv2_main */
 long lrs_run ( lrs_dic *P, lrs_dat * Q); /* main reverse search function */
 long redund_run ( lrs_dic *P, lrs_dat * Q); /* main redund loop */
 void  redund_print(lrs_dic *P,lrs_dat *Q);
+void  remove_artificial(lrs_dic *P,lrs_dat *Q); /* used in minrep */
 lrs_dat *lrs_alloc_dat (const char *name);	/* allocate for lrs_dat structure "name"       */
 lrs_dic *lrs_alloc_dic (lrs_dat * Q);	/* allocate for lrs_dic structure corr. to Q   */
 long lrs_estimate (lrs_dic * P, lrs_dat * Q);	/* get estimates only and returns est number of cobases in subtree */
@@ -445,7 +457,8 @@ void updatevolume (lrs_dic * P, lrs_dat * Q); /* rescale determinant and update 
 long lrs_degenerate (lrs_dic * P, lrs_dat * Q);	/* TRUE if the dictionary is primal degenerate    */
 long extractcols (lrs_dic * P, lrs_dat * Q);	/* preprocess to just extract given cols */
 void print_basis (FILE * fp, lrs_dat * Q);
-void printA (lrs_dic * P, lrs_dat * Q);	/* raw print of dictionary, bases for debugging   */
+void printA (lrs_dic * P, lrs_dat * Q);	/* print of dictionary, bases for debugging   */
+void prawA  (lrs_dic * P, lrs_dat * Q);	/* raw print of dictionary, bases for debugging   */
 void pimat (lrs_dic * P, long r, long s, lrs_mp Nt, const char *name); /* print the row r col s of A                     */
 long readfacets (lrs_dat * Q, long facet[]);	/* read and check facet list                      */
 long readlinearity (lrs_dat * Q);       	/* read and check linearity list                  */
@@ -455,13 +468,15 @@ void rescaledet (lrs_dic * P, lrs_dat * Q, lrs_mp Vnum, lrs_mp Vden);	/* rescale
 void rescalevolume (lrs_dic * P, lrs_dat * Q, lrs_mp Vnum, lrs_mp Vden);	/* adjust volume for dimension          */
 long lrs_leaf(lrs_dic *P, lrs_dat *Q);                    /* true if current dictionary is leaf of reverse search tree  */
 void update_R(lrs_dic *P, lrs_dat *Q, lrs_restart_dat *R);
+void lrsv2_overflow(char *tmp,lrs_dic *P,lrs_dat *Q);
 
 /***************************************************/
 /* Routines for redundancy checking                */
 /***************************************************/
 long checkredund (lrs_dic * P, lrs_dat * Q);/* solve primal lp to check redund of obj fun. returns TRUE if redundant, else FALSE          */
 long checkcobasic (lrs_dic * P, lrs_dat * Q, long index); /* TRUE if index is cobasic and nondegenerate  FALSE if basic, or degen. cobasic, where it will get pivoted out  */
-long checkindex (lrs_dic * P, lrs_dat * Q, long index); /* index=0 non-red.,1 red., 2 input linearity NOTE: row is returned all zero if redundant!!  */
+long checkindex (lrs_dic * P, lrs_dat * Q, long index, long phase); /* index=0 non-red.,1 red., 2 input linearity NOTE: row is returned all zero if redundant!!  */
+void cleanupA(lrs_dic * P, lrs_dat * Q);/* zero out duplicate rows from A*/
 
 
 /***************************************************/
@@ -471,6 +486,8 @@ void lrs_free_dic ( lrs_dic *P, lrs_dat *Q);
 void lrs_free_dic2 ( lrs_dic *P, lrs_dat *Q);  /* same as lrs_free_dic but no cache*/
 void lrs_free_dat ( lrs_dat *Q);
 void copy_dict (lrs_dat * global, lrs_dic * dest, lrs_dic * src);
+lrs_dat *copy_Q( lrs_dat *Q);                   /* allocate and return a copy of Q */
+void     copy2_Q(lrs_dat *Q1, lrs_dat *Q);      /* copy arrays from Q to Q1 */
 lrs_dic *alloc_memory (lrs_dat * Q);
 lrs_dic * lrs_getdic(lrs_dat *Q);
 lrs_dic *resize (lrs_dic * P, lrs_dat * Q);

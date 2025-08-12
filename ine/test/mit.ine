@@ -732,3 +732,11 @@ begin
 0 0 0 0 0 0 0 1 0 
 0 0 0 0 0 0 0 0 1 
 end
+*project 1 1
+*project 6  1 2 3 4 5 6 
+*eliminate 7 8 7 6 5 4 3 2
+*eliminate 1 8
+*noredundcheck
+*verbose
+*printcobasis
+*maxdepth 6

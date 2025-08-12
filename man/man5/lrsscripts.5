@@ -26,6 +26,8 @@ lrslib operations. \fIcaveat emptor\fR \&!
 \fBmfel\fR \fIinput-file [output-file [procs ] ]\fR
 .HP
 \fBmlrs\fR\ \fIinput-file [output-file [procs [cptime [cpindex] ] ]\fR
+.HP
+\fBtlrs\fR\ \fIinput-file [output-file [procs ]\fR
 .HP 
 \fBplotV|plotR\fR
 \fIlrs-output-file [maxdepth [maxcobases] ]\fR
@@ -55,6 +57,12 @@ consecutively. \fBcpindex\fR (if specified) is a valid value of N and causes a r
 checkpoint file input-file.cpN.
 Other \fBmplrs(1)\fR command line parameters are default values.
 
+\fBtlrs\fR:
+Runs naive hybrid arithmetic for multithreaded lrs using the binaries tlrs1, tlrs2, tlrsgmp.
+\fIprocs\fR (if specified) is the number of threads to use. If omitted or zero the default openMP maximum
+thread count is used.
+
+
 \fBplotV\fR(requires \fBgnuplot\fR be installed): 
 produces a PDF file named <lrs-output-file>V.pdf that gives a plot of each vertex or facet
 along with its height in the reverse search tree. 
@@ -78,17 +86,17 @@ Note that a producer stops after (possibly scaled) maxc nodes are explored,
 but in backtracking some additional leaves may be discovered. 
 So the size of the largest subtree may be slightly larger than maxc. 
 
-\fBprojred\fR(requires \fBinedel\fR, \fBcheckpred(1)\fR and
+\fBprojred\fR(requires \fBinedel\fR, \fBpolyv(1)\fR and
 external SMT solver be installed):
-simple wrapper for \fBcheckpred(1)\fR that tests and greedily
+simple wrapper for \fBpolyv(1)\fR that tests and greedily
 removes inequalities that are redundant after a projection, without
-doing the projection.  Repeatedly calls \fBcheckpred(1)\fR and the
+doing the projection.  Repeatedly calls \fBpolyv(1)\fR and the
 specified SMT solver (\fBz3\fR by default), removing inequalities
 determined to be redundant for the given projection.  The output is
 produced in \fI[output file]\fR or on standard output if no output file is
 specified.  The output file will produce the same projection as the
 original input.  Inequalities and projection to test are given as 
-options in the input file, see \fBcheckpred(1)\fR for details.
+options in the input file, see \fBpolyv(1)\fR for details.
 
 .SS "Notes"
 .PP 
@@ -99,5 +107,5 @@ User's guide for lrslib
 .SS Author
 David Avis <avis at cs dot mcgill dot ca >
 .SS "See Also"
-lrs(1), mplrs(1), fel(1), checkpred(1), lrslib(5)
+lrs(1), mplrs(1), fel(1), polyv(1), lrslib(5)
 

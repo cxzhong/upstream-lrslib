@@ -372,5 +372,5 @@ begin
  2  0  0  0  0  0 -1  0  0 -1  0  0 -1  0  0  0 
  6  1  1  1  1  2 -1 -1 -1 -2 -1 -1 -2 -1 -2 -2 
 end
-printcobasis
-*maxdepth 24
+*printcobasis
+maxdepth 12

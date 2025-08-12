@@ -1,4 +1,5 @@
 rc500-5
+* 260 redundant row(s)
 H-representation
 begin
 500 6 integer
@@ -503,4 +504,4 @@ begin
 1  7  4  8  10  -4 
 1  1  9  7  -2  10 
 end
-project 1 1
+eliminate 1 3

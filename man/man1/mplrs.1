@@ -1,4 +1,4 @@
-.TH "mplrs" "1" "2020.9.19" "September 2020" "mplrs  7.2"
+.TH "mplrs" "1" "2024.2.5" "February 2024" "mplrs  7.3"
 .\" -----------------------------------------------------------------
 .\" * Define some portability stuff
 .\" -----------------------------------------------------------------
@@ -31,12 +31,13 @@ inequalities, do Fourier-Motzkin elimination (parallel version)\&.
 A polyhedron can be described by a list of inequalities (\fIH\-representation)\fR
 or by a list of its vertices and extreme rays (\fIV\-representation)\fR\&.
 \fImplrs\fR
-is a parallel version of lrs, and converts a H\-representation of a polyhedron to its V\-representation, and vice versa\&.\ \& These problems are known respectively at the
+is a parallel version of lrs, and converts an H\-representation of a polyhedron to its V\-representation, and vice versa\&.\ \& These problems are known respectively as the
 \fIvertex enumeration\fR
 and
 \fIconvex hull problems\fR\&.
 With \fBlrs\fR options \fBredund\fR or \fBredund_list\fR in the input file it 
-will do parallel execution of \fBredund\fR (redundancy removal).
+will do parallel execution of \fBminrep\fR (computing a minimum representation),
+see \fBredund(1)\fR.
 With \fBlrs\fR options \fBproject\fR or \fBeliminate\fR in the input file it will do parallel
 execution of \fBfel\fR (Fourier-Motkin elimination).
 .PP
@@ -111,7 +112,7 @@ supports the following options, where default values are given in brackets\&.
 .RE
 \fB redund/fel options
 .RS 4
-\fB\-j <int>\fR[0] if non-zero sets rows to m/(j*(np-2)) and disables lastrows
+\fB\-j <int>\fR[1] if non-zero splits the run into <int> jobs per worker, over-riding rows and lastrows
 .RE
 .RS 4
 \fB\-lastp <int>\fR[10] the percentage of jobs to use lastrows
@@ -120,7 +121,8 @@ supports the following options, where default values are given in brackets\&.
 \fB\-lastrows <int>\fR[10] the number of rows for the last lastp jobs 
 .RE
 .RS 4
-\fB\-redund\fR remove redundant rows from input file (also see \fBlrs\fR man page)
+\fB\-minrep\fR removes redundant inequalities, finds hidden
+linearities and outputs a minimum representation of the input file. This ignores any \fBproject\fR or \fBeliminate\fR option present in the input file
 .RE
 .RS 4
 \fB\-rows <int>\fR[60] the number of rows per job 
@@ -146,7 +148,7 @@ One integer per line
 corresponding to the size of a subtree explored by a worker.
 .SS "Example"
 .PP
-Input file mp5\&.ine is run with 8 processors\&. The output file mp5\&.mplrs is in the distribution\&. This produced 378 subtrees that were enumerated in parallel using 6 producer cores,\ \& 1 core controlling the run and 1 core collecting the output\&.
+Input file mp5\&.ine is run with 8 processors\&.  This produced 378 subtrees that were enumerated in parallel using 6 producer cores,\ \& 1 core controlling the run and 1 core collecting the output\&.
 .sp
 .if n \{\
 .RS 4
