@@ -63,7 +63,11 @@ int main(int argc, char *argv[]) {
             Hrep=0;
           }
          first=0;
-         fscanf(lrs_ifp,"%d %d",&rows,&maxindex);
+         if(fscanf(lrs_ifp,"%d %d",&rows,&maxindex)==EOF)
+             {
+               printf("\n*input file missing data");
+               return 0;
+             }            
          printf("\n%d %d",rows,maxindex);
 
          nrow=(int *)malloc((maxindex+2)*sizeof(int));

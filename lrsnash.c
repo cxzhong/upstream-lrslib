@@ -49,6 +49,7 @@ char LegacyMsg[] =
 #include <ctype.h>
 #include <stdlib.h>
 #include <getopt.h>
+#include <sys/stat.h>
 #include "lrsdriver.h"
 #include "lrslib.h"
 #include "lrsnashlib.h"
@@ -66,9 +67,18 @@ char LegacyMsg[] =
 
 char *Outfile = NULL;
 
+#ifdef LRSLONG
+#ifdef B128
+char *name="*lrsnash2";
+#else
+char *name="*lrsnash1";
+#endif
+#else
+char *name="*lrsnash";
+#endif
 //----------------------------------------------------------------------------------------//
 int openIO(void) {
-  if (!lrs_init("*lrsnash:"))
+  if (!lrs_init(name))
     return FALSE;
   fprintf(stderr, "\n");
 	if(Outfile != NULL) {
@@ -86,34 +96,44 @@ void closeIO(void) {
   lrs_close("lrsnash:");
 }
 
-#define RATWARN(name, filename) fprintf(stderr, "\nWarning: String '%s' is not a rational number in file %s.\n", name, filename);
 #define RECWARN(filename) fprintf(stderr, "\nWarning: Excess data in file %s.\n", filename);
 #define ERREXIT if(lrs_ofp != NULL) closeIO(); exit(1);
 #define FILEERROR(name) {fprintf(stderr, "\nError: Cannot find input file '%s'. \
   Execution halted\n", name); ERREXIT}
 #define READERROR(name) {fprintf(stderr, "\nError: Premature end of input file '%s'. \
   Execution halted\n", name); ERREXIT}
-#define SIZEERROR(name) {fprintf(stderr, "\nError: Number of strategies exceeds maximum (%d) in input file '%s'. \
-  Execution halted\n",MAXSTRAT, name); ERREXIT}
 
-//----------------------------------------------------------------------------------------//
-// Simple function to convert string to (num, den)
-int tl_readrat(long *num, long *den, char *str) {
-	char *div = strchr(str, '/');
-	if(div == NULL) {
-		*num = atol(str);
-		*den = 1;
+
+void allocateGameStorage(game *g, const char *infile) {
+	int i, pos;
+	struct stat st;
+
+/* Get size of input file and use it to allocate storage for payoff strings. */
+/* This provides enough space for adding string terminators ('\0'), because  */
+/* there is at least one whitespace character for every payoff number.       */
+
+	stat(infile, &st);
+	g->pstore = (char *) calloc(st.st_size, sizeof(char));
+
+/* Initialize payoff matrices */
+
+	for(pos=0; pos<2; pos++) {
+		g->payoff[pos] = (char ***) calloc(g->nstrats[ROW], sizeof(char **));
+  	for (i=0;i<g->nstrats[ROW];i++) 
+			g->payoff[pos][i] = (char **) calloc(g->nstrats[COL], sizeof(char *));
 	}
-	else if(div == str || *(div+1) == 0) { //  str = '/x' or str = 'x/'
-		return FALSE;
+}
+
+void freeGameStorage(game *g) {
+	int i, pos;
+
+	for(pos=0; pos<2; pos++) {
+  	for (i=0; i<g->nstrats[ROW]; i++) 
+			free(g->payoff[pos][i]);
+		free(g->payoff[pos]);
 	}
-	else {
-		*div = 0;               // Note: 'str' is modified here
-		*num = atol(str);
-		*den = atol(div+1);
-	}
-	return TRUE;
-} 
+	free(g->pstore);
+}
 
 
 //----------------------------------------------------------------------------------------//
@@ -121,31 +141,38 @@ int readGame(game * g, const char *filename)
 {
 	FILE *IN;
   long pos, s, t, nr, nc;
-  char in[MAXINPUT];
-	strcpy(((gInfo *)g->aux)->name, filename);
+	char *p;
+	g->name = (char *) calloc(strlen(filename)+1, sizeof(char));
+	strcpy(g->name, filename);
   if ((IN = fopen(filename, "r")) == NULL) 
 		FILEERROR(filename);
   if (fscanf(IN, "%ld %ld", &nr, &nc) < 2) 
 		READERROR(filename);
-  if (nr > MAXSTRAT || nc > MAXSTRAT) 
-		SIZEERROR(filename);
+
+/* get game dimensions */
+
   g->nstrats[ROW] = nr;
   g->nstrats[COL] = nc;
-	initFwidth(g);
-  // Read payoffs
+
+	allocateGameStorage(g, filename);
+
+/* Read payoff matrices */
+
+	p = g->pstore;
   for (pos = 0; pos < 2; pos++) {
-    for (s = 0; s < nr; s++) {
-      for (t = 0; t < nc; t++) {
-        if (fscanf(IN, "%s", in) < 1) 
+		for (s=0; s<g->nstrats[ROW]; s++) {
+		  for (t=0; t<g->nstrats[COL]; t++) {
+		    if(fscanf(IN, "%s", p) < 1) 
 					READERROR(filename);
-				updateFwidth(g, t, pos, in);
-				if (!tl_readrat (&g->payoff[s][t][pos].num, &g->payoff[s][t][pos].den, in))
-					RATWARN(in, filename);
-      }
+				g->payoff[pos][s][t] = p;
+		    p += strlen(p)+1; 
+			}
 		}
 	}
-	if (fscanf(IN, "%s", in) == 1)  // Too many payoff entries
+
+	if (fscanf(IN, "%1s", p) == 1)  // Too many payoff entries
 		RECWARN(filename);
+
   fclose(IN);
   return TRUE;
 }
@@ -201,7 +228,7 @@ int getArgs(int argc, char **argv)
     if (c == -1)
       break;
 
-      switch (c) {
+    switch (c) {
     case '?':
 			fprintf(stderr, "\nError: Unknown option '-%c'.\n", optopt);
 			error = TRUE;
@@ -278,8 +305,6 @@ int main(int argc, char **argv)
 {
   game Game;                            // Storage for one game
   game *g = &Game;
-	gInfo GI;                             // Storage for auxiliary information about the game
-	g->aux = &GI;
 
   if(!getArgs(argc, argv))              // Read options and input file names. When we get here:
 		return 1;                           // optind is a global integer supplied by getopt, and
@@ -291,13 +316,14 @@ int main(int argc, char **argv)
 		if(!openIO())
 			return 1;
 		while (optind < argc) {             // Handle standard input file[s]
-		  if(readGame(g, argv[optind++])) {
+		  if(readGame(g, argv[optind++])) { // Game storage is allocated here
 				if(Print_game_flag)
 		    	printGame(g);
 		    lrs_solve_nash(g);
 		  }
 		}
   	closeIO();
+		freeGameStorage(g);
 	}
 	else 
 	{                                     // Handle legacy input files      

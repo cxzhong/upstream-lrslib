@@ -12,32 +12,139 @@ http://cgm.cs.mcgill.ca/~avis/C/lrs.html
 
 
 -----------------------------------------------------------------------------
+Version 7.3 
+manual: http://cgm.cs.mcgill.ca/~avis/C/lrslib/USERGUIDE73.html
 
-Version 7.1b
-manual: http://cgm.cs.mcgill.ca/~avis/C/lrslib/USERGUIDE71.html
+2024.1.31
+New features:
 
-2021.6.02
+lrs   is now multithreaded with limited parallelization on a shared memory machine using
+      OpenMP. lrs now evaluates in parallel all children of the root in the search tree.
+
+minrep  Finds any hidden linearities and removes redundancy giving a H/V description
+        with minimum number of rows
+
+mplrs -minrep  Fully parallelized version of minrep, replaces "mplrs -redund"
+
+mplrs -fel Does a fully parallel LP redundancy removal in one step of Fourier-Motzin
+           elimination.
+
+Major changes in polyv relative to 7.2:
+ 1. renamed from checkpred, but remains compatible with 7.2 style usage.
+ 2. new features: check equivalency between H/V representations (possibly
+    after projections) using SMT solvers, see the polyv man page for details.
+
+Windows users: recommended to install lrslib using the Windows/WSL Debian or Ubuntu layer
+               otherwise in powershell win.bat may produce lrs.exe and lrsgmp.exe
+               if a relatively recent version of gcc is available - no guarantees!
+
+2023.11.23
+
+single processor
+
+minrep: find a minimum representation ignoring any project/eliminate option
+redund: remove redundant rows from the input ignoring any project/eliminate option
+        if testlin present do minrep
+fel:    Fourier-Motzkin elimination ignoring any redund/redund_list options
+        No project/eliminate option: last column eliminated
+lrs:    H-V transformation unless testlin/redund*/project/eliminate options present
+        testlin only: check for relative interior point and terminate
+        redund/redund_list only: same as redund
+        redund/redund_list+teslin: same as minrep
+        project/eliminate only: same as fel
+        both redund/redund_list and project/eliminate: last input wins
+
+multiple processors
+
+mplrs -minrep     find minimum representation
+      any project/eliminate option should be ignored
+mplrs -fel   parallel version of lrs with project/eliminate option 
+      No project/eliminate option: last column eliminated
+      Assumes input is a minrep, if not it does a minrep instead of fel
+
+mplrs both redund/redund_list and project/eliminate options present: last input wins
+
+
+-----------------------------------------------------------------------------
+Version 7.2 
+manual: http://cgm.cs.mcgill.ca/~avis/C/lrslib/USERGUIDE72.html
+
+2021.6.04
+
+Patches carried over from lrslib-071b release:
+
 Added patches 1,2, and 4 supplied by the Julia group:
 https://github.com/JuliaPackaging/Yggdrasil/tree/master/L/lrslib/bundled/patches
+The no128bit.patch removes 128-bit support and was not used.
 
-no128bit.patch removes 128-bit support and was not used.
-
-2021.6.01 makefile updates
-
+makefile updates
 install lrsrestart.h in install-common (thanks to Philipp-Joachim Ost for the report).
 Update makefile to ease building on 32 bit architectures.
 
-2021.5.19
 redund bug reported by Eric Petersen where output can be lost in arithmetic change
-Fixed around l. 6367
+Fixed in lrslib.c around l. 6367
 
---------------------------------------------------------------------------------
+2021.5.19
+1. maxdepth lrs option now works with mplrs
 
+2. mplrs renumbers B# when printcobasis is set in lrs causing global B# numbers to be output
+
+3. various shell scripts are now in the scripts directory
+   plotB produces a plot from mplrs output showing B# and height for each new vertex/ray/facet output
+
+2021.5.5
+
+Running mplrs with gcc version 10.2.0 issues (no action needed)
+
+setenv PMIX_MCA_gds hash
+
+to avoid
+%lg PMIX ERROR: ERROR in file /pub/devel/openmpi/v4.1/openmpi-4.1.0-1.x86_64/src/openmpi-4.1.0/opal/mca/pmix/pmix3x/pmix/src/mca/gds/ds12/gds_ds12_lock_pthread.c at line 168
+
+see: https://github.com/open-mpi/ompi/issues/7516
+
+2020.11.18
+
+% make lrsmp
+
+will produce a binary that uses hybrid arithmetic with the built in mp package and does not
+need dynamic load libraries
+
+2020.7.25 
+The eliminate/project options does Fourier Elimination for H-rep or extract columns
+and redundancy removal for V-rep.
+
+eliminate k   i_1 i_2 .. i_k
+
+eliminates variables in an H-representation corresponding to cols i_1 .. i_k. Col zero cannot be eliminated.
+Variables are eliminated in the order given.
+
+project k   i_1 i_2 .. i_k
+
+projects an input H-rep with cols 0 1 2 .. n-1 onto cols 0 i_1 .. i_k. Col zero always kept.
+Variables are eliminated are those not in the list, from smallest to largest.
+
+Implemented for mplrs on H-representations where it will eliminate the first variable
+on the eliminate list. The script mfel iterates mplrs k times to eliminate all k variables.
+
+Usage:
+
+% mfel file.ine k np        where np=number of processors to use.
+-----------------------------------------------------------------------------------
+
+lrs currently runs in 4 modes depending on presence of options: extract/project/redund
+In case more than one option is provided the last one overides the others.
+
+modes:
+
+default: none of those options, H/V to V/H conversion
+redund:  remove redundant lines in input
+extract: remove linearities for H, extract columns for V
+project: fourier elimination 
+
+-----------------------------------------------------------------------------
 Version 7.1 
-
-2020.10.17
-
-Memory leak in countonly option fixed for mplrs/lrs.
+manual: http://cgm.cs.mcgill.ca/~avis/C/lrslib/USERGUIDE71.html
 
 2020.5.25
 Version 7.1 is a major revision completing the move to an all C library begun
@@ -152,7 +259,7 @@ stage=2  performs clean up and closes files
 
 2019.6.13
 
-If lrs is compiled with -DLRS_QUIET lrs produces an ouput file with only the data
+If lrs is compiled with -DLRS_QUIET lrs produces an output file with only the data
 between the begin and end lines, ie. a matrix of the V or H representation.
 The only exception is if the input is a V-rep and output has linearities
 in which case line one has the linearity information

@@ -18,26 +18,16 @@
 /* Games     */
 /*************/
 
-#define MAXSTRAT 200
 #define ROW 0
 #define COL 1
 
 typedef struct {
-        long num;
-        long den;
-} ratnum;
-
-typedef struct {
+	char *name;
   long nstrats[2];
-  ratnum payoff[MAXSTRAT][MAXSTRAT][2];
-  // For auxiliary information
-        void *aux;
+	char *pstore;				// Storage for payoffs
+  char ***payoff[2];	// Pointers to payoffs
 } game;
 
-typedef struct {
-        char name[100];
-        int fwidth[MAXSTRAT][2]; // Column field widths (for output)
-} gInfo;
 
 
 int lrs_solve_nash(game * g);
@@ -62,10 +52,7 @@ void FillLinearityRow(lrs_dic * P, lrs_dat * Q, int m, int n);
 void FillConstraintRows(lrs_dic * P, lrs_dat * Q, const game * g, int p1, int p2, int firstRow);
 void FillNonnegativityRows(lrs_dic * P, lrs_dat * Q, int firstRow, int lastRow, int n);
 void printGame(game * g);
-void setFwidth(game *g, int len);
 void resetNashSolver();  /* Call this function for every new game to be solved */
-void initFwidth(game *g);
-void updateFwidth(game *g, int col, int pos, char *str);
 
 
 static long Debug_flag;

@@ -1,7 +1,8 @@
 cube
 H-representation
 begin
-6 4 rational
+7 4 rational
+ 2  1  0 0
  1  1  0  0 
  1  0  1  0 
  1  0  0  1 
@@ -9,4 +10,4 @@ begin
  1  0  0 -1 
  1  0 -1  0 
 end
-redund 0 0
+verbose
