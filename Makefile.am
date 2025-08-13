@@ -108,24 +108,6 @@ nobase_dist_examples_DATA =			\
 	ext/test/cut32_16.ext			\
 	ext/test/cyclic25_13.ext		\
 	ext/test/tsp5.ext			\
-	ine/cocoa13/bv10.ine			\
-	ine/cocoa13/bv4.ine			\
-	ine/cocoa13/bv5.ine			\
-	ine/cocoa13/bv6.ine			\
-	ine/cocoa13/bv7.ine			\
-	ine/cocoa13/bv8.ine			\
-	ine/cocoa13/bv9.ine			\
-	ine/cocoa13/c28-14.ext			\
-	ine/cocoa13/c30-15.ext			\
-	ine/cocoa13/c40-20.ext			\
-	ine/cocoa13/mit.ine			\
-	ine/cocoa13/perm10.ine			\
-	ine/cocoa13/perm4.ine			\
-	ine/cocoa13/perm5.ine			\
-	ine/cocoa13/perm6.ine			\
-	ine/cocoa13/perm7.ine			\
-	ine/cocoa13/perm8.ine			\
-	ine/cocoa13/perm9.ine			\
 	ine/metric/cp4.ine			\
 	ine/metric/cp5.ine			\
 	ine/metric/cp6.ine			\
