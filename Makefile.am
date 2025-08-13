@@ -120,14 +120,29 @@ nobase_dist_examples_DATA =			\
 	ine/mit/mit708-9.ine			\
 	ine/mit/mit71-61.ine			\
 	ine/mit/mit90-86.ine			\
-	ine/redund/ep.ine			\
+	ine/redund/c4.ine			\
+	ine/redund/cube.ine			\
 	ine/redund/metric80_16.ine		\
-	ine/redund/mp5.ine			\
 	ine/redund/mp5a.ine			\
-	ine/redund/mp5b.ine			\
 	ine/redund/mp5c.ine			\
-	ine/redund/non_par.ine			\
-	ine/redund/par.ine			\
+	ine/redund/r20_5.ine			\
+	ine/redund/r2000_5.redund		\
+	ine/redund/r35_5.ine			\
+	ine/redund/r500_5.ine			\
+	ine/redund/c4a.ine 			\
+	ine/redund/mit.ine			\
+	ine/redund/mp5b.ine			\
+	ine/redund/r100_5.ine			\
+	ine/redund/r2000_5.ine			\
+	ine/redund/r2000_5.redundc		\
+	ine/redund/r4000_5.ine			\
+	ine/redund/hidden/c1.ine		\
+	ine/redund/hidden/c2.ine		\
+	ine/redund/hidden/c2a.ine		\
+	ine/redund/hidden/cp4.ine		\
+	ine/redund/hidden/metric80_16.ine	\
+	ine/redund/hidden/rcube.ine		\
+	ine/redund/hidden/s0.ine		\
 	ine/test/cross4.ine			\
 	ine/test/cyclic17_8.ine			\
 	ine/test/diamond.ine			\
