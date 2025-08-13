@@ -76,7 +76,11 @@ noinst_HEADERS = lrsnashlib.h mplrs.h
 
 examplesdir = $(pkgdatadir)/doc/examples
 nobase_dist_examples_DATA =			\
+	games/g					\
+	games/g1				\
+	games/g2				\
 	games/game				\
+	games/game_22				\
 	games/game1				\
 	games/game2				\
 	games/gamec				\
@@ -84,7 +88,9 @@ nobase_dist_examples_DATA =			\
 	games/gamem.2				\
 	games/gamem.gmp				\
 	games/gamemp				\
-	games/gamemp.1				\
+	games/h					\
+	games/h1				\
+	games/h2				\
 	cube.ext				\
 	cube.ine				\
 	mit.ine					\
