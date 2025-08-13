@@ -95,11 +95,15 @@ nobase_dist_examples_DATA =			\
 	cube.ine				\
 	mit.ine					\
 	mp5.ine					\
+	ext/metric/c6.ext			\
+	ext/metric/c6.ine			\
+	ext/metric/c7.ext			\
+	ext/metric/c7.ine			\
 	ext/metric/cp4.ext			\
 	ext/metric/cp5.ext			\
 	ext/metric/cp6.ext			\
+	ext/metric/cp6.ine			\
 	ext/metric/cp7.ext			\
-	ext/metric/mp5.ext			\
 	ext/test/cut16_11.ext			\
 	ext/test/cut32_16.ext			\
 	ext/test/cyclic25_13.ext		\
